@@ -87,6 +87,25 @@ export function adaptSession(
     row.transcript_text,
     row.created_at,
   );
+
+  // M2: surface transcription state in the card copy when there's no
+  // notes/transcript yet. (Failed → "Transcription unavailable",
+  // pending/processing → "Transcribing…".)
+  if (notes.length === 0 && row.input_type === "voice") {
+    const tx = (row.voice_transcriptions ?? [])[0];
+    if (tx) {
+      const ts = formatTime(row.created_at);
+      if (tx.transcription_status === "failed") {
+        notes.push({ text: "Transcription unavailable", timestamp: ts });
+      } else if (
+        tx.transcription_status === "pending" ||
+        tx.transcription_status === "processing"
+      ) {
+        notes.push({ text: "Transcribing…", timestamp: ts });
+      }
+    }
+  }
+
   if (notes.length === 0 && row.input_type === "no_issues") {
     notes.push({ text: "No issues reported", timestamp: formatTime(row.created_at) });
   }
