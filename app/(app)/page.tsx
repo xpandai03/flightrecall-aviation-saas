@@ -1,297 +1,313 @@
-"use client"
+"use client";
 
-import * as React from "react"
-import { toast } from "sonner"
-import { ImagePlus, Mic, Plane, RotateCcw, Square } from "lucide-react"
+import * as React from "react";
+import { toast } from "sonner";
+import { Loader2, Mic, Plane } from "lucide-react";
 
-import { Orb, type OrbState } from "@/components/orb"
-import { Button } from "@/components/ui/button"
+import { Orb } from "@/components/orb";
+import { Button } from "@/components/ui/button";
+import { EntryChoice } from "@/components/preflight/entry-choice";
+import { VoiceRecorder } from "@/components/preflight/voice-recorder";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { useAudioLevel } from "@/hooks/use-audio-level"
-import { useSessions } from "@/lib/api/sessions"
-import type { Observation } from "@/lib/mock-helpers"
+  PhotoCapture,
+  PhotoPreview,
+} from "@/components/preflight/photo-capture";
+import { QuickTagPicker } from "@/components/preflight/quick-tag-picker";
+import { Confirmation } from "@/components/preflight/confirmation";
+import { createSession, listAircraft } from "@/lib/api/sessions";
+import { uploadMedia, audioFileNameForMime } from "@/lib/api/media";
+import { useTranscriptionPoll } from "@/hooks/use-transcription-poll";
+import type {
+  Aircraft,
+  InputType,
+  PreflightSession,
+  QuickTag,
+} from "@/lib/types/database";
+import type { RecorderResult } from "@/hooks/use-media-recorder";
 
-type FlowState = "idle" | "listening" | "completed"
+type Step =
+  | { kind: "idle" }
+  | { kind: "choosing" }
+  | { kind: "recording" }
+  | { kind: "capturing" }
+  | {
+      kind: "tagging";
+      file: File;
+      previewUrl: string;
+      quickTag: QuickTag | null;
+    }
+  | { kind: "uploading"; mode: InputType }
+  | {
+      kind: "confirming";
+      session: PreflightSession;
+      mode: InputType;
+      voiceTranscriptionId?: string;
+      photo?: { previewUrl: string; quickTag: QuickTag | null };
+    };
 
-const TRANSCRIPT_LINES = [
-  "Oil residue under fuselage.",
-  "Brake softness on left main gear.",
-]
-
-const CHAR_DELAY = 55
-const LINE_START_DELAYS = [250, 1950]
-
-function todayLabel() {
+function todayLabel(): string {
   return new Date().toLocaleDateString("en-US", {
     month: "long",
     day: "numeric",
     year: "numeric",
-  })
+  });
 }
 
 export default function DashboardPage() {
-  const { audioLevel, isListening, startListening, stopListening } = useAudioLevel()
-  const { sessions, addSession } = useSessions()
+  const [aircraft, setAircraft] = React.useState<Aircraft[]>([]);
+  const [aircraftLoaded, setAircraftLoaded] = React.useState(false);
+  const [step, setStep] = React.useState<Step>({ kind: "idle" });
 
-  const [flow, setFlow] = React.useState<FlowState>("idle")
-  const [typed, setTyped] = React.useState<string[]>(["", ""])
-  const [photoPromptOpen, setPhotoPromptOpen] = React.useState(false)
-  const [pendingPhotos, setPendingPhotos] = React.useState<string[]>([])
-  const [simulatedLevel, setSimulatedLevel] = React.useState(0)
-  const timersRef = React.useRef<ReturnType<typeof setTimeout>[]>([])
-  const simIntervalRef = React.useRef<ReturnType<typeof setInterval> | null>(null)
-
-  const clearTimers = React.useCallback(() => {
-    timersRef.current.forEach(clearTimeout)
-    timersRef.current = []
-    if (simIntervalRef.current) {
-      clearInterval(simIntervalRef.current)
-      simIntervalRef.current = null
-    }
-  }, [])
-
-  React.useEffect(() => () => clearTimers(), [clearTimers])
-
-  const commitSession = React.useCallback(
-    (photos: string[]) => {
-      const notes: Observation[] = TRANSCRIPT_LINES.map((text, i) => ({
-        text: text.replace(/\.$/, ""),
-        timestamp: new Date(Date.now() + i * 1000).toLocaleTimeString("en-US", {
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: false,
-        }),
-      }))
-      const brakeSeenBefore = sessions.some((s) =>
-        s.notes.some((n) => n.text.toLowerCase().includes("brake softness")),
-      )
-      const transcriptText = notes.map((n) => n.text).join("\n")
-      void addSession({
-        input_type: "voice",
-        transcript_text: transcriptText,
-        optimisticNotes: notes,
-        optimisticPhotos: photos,
-        optimisticRepeatedFlags: brakeSeenBefore ? ["Brake softness"] : [],
-      }).catch((err) => {
-        toast.error("Failed to save session", {
+  React.useEffect(() => {
+    let cancelled = false;
+    listAircraft()
+      .then((rows) => {
+        if (cancelled) return;
+        setAircraft(rows);
+        setAircraftLoaded(true);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        toast.error("Failed to load aircraft", {
           description: err instanceof Error ? err.message : String(err),
-        })
-      })
-    },
-    [addSession, sessions],
-  )
+        });
+        setAircraftLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  const runTranscript = React.useCallback(() => {
-    setTyped(["", ""])
-    TRANSCRIPT_LINES.forEach((line, lineIdx) => {
-      for (let i = 1; i <= line.length; i++) {
-        const t = setTimeout(() => {
-          setTyped((prev) => {
-            const next = [...prev]
-            next[lineIdx] = line.slice(0, i)
-            return next
-          })
-        }, LINE_START_DELAYS[lineIdx] + i * CHAR_DELAY)
-        timersRef.current.push(t)
-      }
-    })
+  const defaultAircraft = aircraft[0] ?? null;
+  const aircraftTail = defaultAircraft?.tail_number ?? "—";
 
-    const completeAt =
-      LINE_START_DELAYS[1] + TRANSCRIPT_LINES[1].length * CHAR_DELAY + 450
-    const completeTimer = setTimeout(() => {
-      stopListening()
-      if (simIntervalRef.current) {
-        clearInterval(simIntervalRef.current)
-        simIntervalRef.current = null
+  const reset = React.useCallback(() => {
+    setStep((prev) => {
+      if (prev.kind === "tagging") URL.revokeObjectURL(prev.previewUrl);
+      if (prev.kind === "confirming" && prev.photo) {
+        URL.revokeObjectURL(prev.photo.previewUrl);
       }
-      setSimulatedLevel(0)
-      setFlow("completed")
+      return { kind: "idle" };
+    });
+  }, []);
+
+  const handleStart = () => setStep({ kind: "choosing" });
+
+  const handlePick = (choice: "voice" | "photo" | "no_issues") => {
+    if (!defaultAircraft) {
+      toast.error("No aircraft available");
+      return;
+    }
+    if (choice === "voice") setStep({ kind: "recording" });
+    else if (choice === "photo") setStep({ kind: "capturing" });
+    else void handleNoIssues();
+  };
+
+  const handleNoIssues = async () => {
+    if (!defaultAircraft) return;
+    setStep({ kind: "uploading", mode: "no_issues" });
+    try {
+      const session = await createSession({
+        aircraft_id: defaultAircraft.id,
+        input_type: "no_issues",
+        status_color: "green",
+      });
+      setStep({ kind: "confirming", session, mode: "no_issues" });
+    } catch (err) {
+      toast.error("Couldn't save session", {
+        description: err instanceof Error ? err.message : String(err),
+      });
+      setStep({ kind: "idle" });
+    }
+  };
+
+  const handleVoiceComplete = async (result: RecorderResult) => {
+    if (!defaultAircraft) return;
+    setStep({ kind: "uploading", mode: "voice" });
+    try {
+      const session = await createSession({
+        aircraft_id: defaultAircraft.id,
+        input_type: "voice",
+      });
+      const { name } = audioFileNameForMime(result.mimeType);
+      const outcome = await uploadMedia({
+        preflight_session_id: session.id,
+        blob: result.blob,
+        media_type: "audio",
+        file_name: name,
+        mime_type: result.mimeType,
+      });
       toast.success("Saved", {
-        description: "Preflight note captured to this session.",
-      })
-      setPhotoPromptOpen(true)
-    }, completeAt)
-    timersRef.current.push(completeTimer)
-  }, [stopListening])
+        description: "Recording captured. Transcribing…",
+      });
+      setStep({
+        kind: "confirming",
+        session,
+        mode: "voice",
+        voiceTranscriptionId: outcome.voice_transcription_id,
+      });
+    } catch (err) {
+      toast.error("Couldn't save voice note", {
+        description: err instanceof Error ? err.message : String(err),
+      });
+      setStep({ kind: "idle" });
+    }
+  };
 
-  const handleStart = React.useCallback(async () => {
-    clearTimers()
-    setFlow("listening")
-    setTyped(["", ""])
-    await startListening()
-    // Synthetic pulse as safety net if the mic is silent / denied
-    let t = 0
-    simIntervalRef.current = setInterval(() => {
-      t += 0.08
-      const wave = (Math.sin(t * 2.4) + 1) / 2
-      const jitter = Math.random() * 0.2
-      setSimulatedLevel(Math.min(1, wave * 0.7 + jitter * 0.4))
-    }, 60)
-    runTranscript()
-  }, [clearTimers, runTranscript, startListening])
+  const handlePhotoCaptured = (file: File, previewUrl: string) => {
+    setStep({ kind: "tagging", file, previewUrl, quickTag: null });
+  };
 
-  const handleReset = React.useCallback(() => {
-    clearTimers()
-    stopListening()
-    setSimulatedLevel(0)
-    setTyped(["", ""])
-    setPendingPhotos([])
-    setPhotoPromptOpen(false)
-    setFlow("idle")
-  }, [clearTimers, stopListening])
+  const handlePhotoSave = async () => {
+    if (step.kind !== "tagging") return;
+    if (!defaultAircraft) return;
+    const { file, previewUrl, quickTag } = step;
+    setStep({ kind: "uploading", mode: "photo" });
+    try {
+      const session = await createSession({
+        aircraft_id: defaultAircraft.id,
+        input_type: "photo",
+      });
+      const safeName = file.name && file.name.length > 0 ? file.name : "photo.jpg";
+      await uploadMedia({
+        preflight_session_id: session.id,
+        blob: file,
+        media_type: "photo",
+        file_name: safeName,
+        mime_type: file.type || "image/jpeg",
+        quick_tag: quickTag ?? undefined,
+      });
+      toast.success("Saved", { description: "Photo logged to this session." });
+      setStep({
+        kind: "confirming",
+        session,
+        mode: "photo",
+        photo: { previewUrl, quickTag },
+      });
+    } catch (err) {
+      toast.error("Couldn't save photo", {
+        description: err instanceof Error ? err.message : String(err),
+      });
+      URL.revokeObjectURL(previewUrl);
+      setStep({ kind: "idle" });
+    }
+  };
 
-  const handleUploadPhotos = () => {
-    const photos = ["thumb-new-a", "thumb-new-b"]
-    setPendingPhotos(photos)
-    setPhotoPromptOpen(false)
-    commitSession(photos)
-    toast("Photos attached", { description: "2 inspection photos added." })
-  }
-
-  const handleNoPhotos = () => {
-    setPhotoPromptOpen(false)
-    commitSession([])
-  }
-
-  const orbState: OrbState = flow === "listening" ? "listening" : flow === "completed" ? "saved" : "idle"
-  const effectiveLevel = isListening ? Math.max(audioLevel, simulatedLevel * 0.7) : simulatedLevel * 0.5
+  const sessionForPoll =
+    step.kind === "confirming" && step.mode === "voice" ? step.session.id : null;
+  const poll = useTranscriptionPoll(
+    sessionForPoll,
+    sessionForPoll !== null,
+  );
 
   return (
     <div className="flex flex-col items-center gap-10 py-4 sm:py-10">
       <div className="flex flex-col items-center text-center gap-2">
         <div className="inline-flex items-center gap-1.5 rounded-full border border-sky-200/70 bg-sky-50/70 px-3 py-1 text-xs font-medium text-sky-700">
           <Plane className="size-3 -rotate-45" />
-          Preflight · {todayLabel()} · N739X
+          Preflight · {todayLabel()} · {aircraftTail}
         </div>
-        <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight">Flight Memory</h1>
+        <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight">
+          Flight Recall
+        </h1>
         <p className="text-muted-foreground text-sm sm:text-base">
           Voice-first preflight logging. Speak what you see, we remember.
         </p>
       </div>
 
-      <Orb state={orbState} audioLevel={effectiveLevel} />
+      {step.kind === "idle" && (
+        <IdleHero
+          onStart={handleStart}
+          disabled={!aircraftLoaded || !defaultAircraft}
+        />
+      )}
 
-      <TranscriptPanel flow={flow} lines={typed} />
+      {step.kind === "choosing" && (
+        <EntryChoice onPick={handlePick} onCancel={reset} />
+      )}
 
-      <div className="flex flex-col items-center gap-3">
-        {flow === "idle" && (
-          <Button size="lg" onClick={handleStart} className="h-12 px-7 rounded-full shadow-sm">
-            <Mic className="size-4" />
-            Start Preflight
-          </Button>
-        )}
+      {step.kind === "recording" && (
+        <VoiceRecorder
+          onComplete={handleVoiceComplete}
+          onCancel={reset}
+        />
+      )}
 
-        {flow === "listening" && (
-          <Button
-            size="lg"
-            variant="secondary"
-            onClick={handleReset}
-            className="h-12 px-7 rounded-full"
-          >
-            <Square className="size-3.5 fill-current" />
-            Stop
-          </Button>
-        )}
+      {step.kind === "capturing" && (
+        <PhotoCapture
+          onCaptured={handlePhotoCaptured}
+          onCancel={reset}
+        />
+      )}
 
-        {flow === "completed" && (
-          <div className="flex flex-col items-center gap-3">
-            {pendingPhotos.length > 0 && (
-              <div className="flex gap-2">
-                {pendingPhotos.map((p) => (
-                  <PhotoThumb key={p} />
-                ))}
-              </div>
-            )}
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={handleReset} className="rounded-full">
-                End Session
-              </Button>
-              <Button onClick={handleReset} className="rounded-full">
-                <RotateCcw className="size-3.5" />
-                Start New Note
-              </Button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <Dialog open={photoPromptOpen} onOpenChange={setPhotoPromptOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Add photos from inspection?</DialogTitle>
-            <DialogDescription>
-              Attach photos to this note so findings stay visual in your session log.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid grid-cols-2 gap-3 py-2">
-            <button
-              type="button"
-              onClick={handleUploadPhotos}
-              className="group flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-sky-300 bg-sky-50/50 p-6 text-sm text-sky-800 transition-colors hover:border-sky-400 hover:bg-sky-50"
-            >
-              <ImagePlus className="size-5" />
-              Upload Photos
-            </button>
-            <button
-              type="button"
-              onClick={handleNoPhotos}
-              className="rounded-lg border border-border bg-background p-6 text-sm text-muted-foreground transition-colors hover:bg-accent"
-            >
-              No Photos
-            </button>
-          </div>
-          <DialogFooter className="text-xs text-muted-foreground">
-            Note will be saved either way.
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
-  )
-}
-
-function TranscriptPanel({ flow, lines }: { flow: FlowState; lines: string[] }) {
-  const show = flow !== "idle"
-  return (
-    <div
-      className={`w-full max-w-md transition-all duration-500 ${
-        show ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2 pointer-events-none h-0"
-      }`}
-    >
-      <div className="rounded-2xl border border-border/80 bg-background/80 backdrop-blur-sm px-5 py-4 shadow-sm">
-        <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground mb-2">
-          <span
-            className={`inline-flex size-1.5 rounded-full ${
-              flow === "listening" ? "bg-sky-500 animate-pulse" : "bg-emerald-500"
-            }`}
+      {step.kind === "tagging" && (
+        <div className="flex flex-col items-center gap-6 w-full">
+          <PhotoPreview
+            previewUrl={step.previewUrl}
+            onRetake={() => {
+              URL.revokeObjectURL(step.previewUrl);
+              setStep({ kind: "capturing" });
+            }}
           />
-          {flow === "listening" ? "Listening…" : "Transcript"}
+          <QuickTagPicker
+            value={step.quickTag}
+            onChange={(next) =>
+              setStep((prev) =>
+                prev.kind === "tagging"
+                  ? { ...prev, quickTag: next }
+                  : prev,
+              )
+            }
+            onSave={handlePhotoSave}
+            onCancel={reset}
+          />
         </div>
-        <div className="space-y-1.5 text-[15px] leading-relaxed text-foreground min-h-[3.5rem]">
-          {lines.map((l, i) => (
-            <p key={i}>
-              {l}
-              {flow === "listening" && l.length > 0 && i === lines.findIndex((x) => x.length > 0 && x !== lines[1]) && (
-                <span className="ml-0.5 inline-block w-[2px] h-4 align-middle bg-foreground/60 animate-pulse" />
-              )}
-            </p>
-          ))}
+      )}
+
+      {step.kind === "uploading" && (
+        <div className="flex flex-col items-center gap-3 text-muted-foreground">
+          <Loader2 className="size-6 animate-spin text-sky-500" />
+          <div className="text-sm">Saving…</div>
         </div>
-      </div>
+      )}
+
+      {step.kind === "confirming" && (
+        <Confirmation
+          inputType={step.mode}
+          aircraftTail={aircraftTail}
+          createdAtIso={step.session.created_at}
+          statusColor={step.session.status_color}
+          poll={step.mode === "voice" ? poll : undefined}
+          photo={step.photo}
+          onDone={reset}
+        />
+      )}
     </div>
-  )
+  );
 }
 
-function PhotoThumb() {
+function IdleHero({
+  onStart,
+  disabled,
+}: {
+  onStart: () => void;
+  disabled: boolean;
+}) {
   return (
-    <div className="size-16 rounded-lg bg-gradient-to-br from-slate-200 via-sky-100 to-slate-300 shadow-sm ring-1 ring-border/60 flex items-center justify-center">
-      <Plane className="size-5 text-slate-500/70 -rotate-45" />
-    </div>
-  )
+    <>
+      <Orb state="idle" audioLevel={0} />
+      <Button
+        size="lg"
+        onClick={onStart}
+        disabled={disabled}
+        className="h-12 px-7 rounded-full shadow-sm"
+      >
+        <Mic className="size-4" />
+        Start Preflight
+      </Button>
+      {disabled && (
+        <p className="text-xs text-muted-foreground">Loading aircraft…</p>
+      )}
+    </>
+  );
 }
