@@ -22,7 +22,7 @@ export async function GET(
 
   const { data, error } = await supabase
     .from("preflight_sessions")
-    .select("*, media_assets(*)")
+    .select("*, media_assets(*), voice_transcriptions(*)")
     .eq("id", parsed.data)
     .maybeSingle();
 

@@ -68,7 +68,7 @@ export async function GET(request: Request) {
 
   let q = supabase
     .from("preflight_sessions")
-    .select("*, media_assets(*)")
+    .select("*, media_assets(*), voice_transcriptions(*)")
     .order("created_at", { ascending: false })
     .limit(limit);
 
