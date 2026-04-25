@@ -317,26 +317,30 @@ The file references `${SUPABASE_ACCESS_TOKEN}` — a placeholder that resolves f
 
 We accumulated **two separate** pieces of security debt during M1, both deliberately. **Both must be undone together in M4. Re-enabling RLS while leaving the broad grants in place will not actually secure the tables.**
 
-### Debt 1 — RLS disabled on three tables
+### Debt 1 — RLS disabled on four tables (three from M1, one from M2)
 
 During local verification, Supabase had **auto-enabled Row Level Security** on `public.aircraft`, `public.preflight_sessions`, and `public.media_assets` despite the migration script not containing any `enable row level security` statements. This is consistent with Supabase's newer project defaults (post the publishable-key revamp): RLS is forced on for new tables in the `public` schema. The publishable key uses the `anon` role, which had no policies, so every read returned an empty array and every write returned `42501 — new row violates row-level security policy`.
 
-As an explicit M1 deferral, we disabled RLS on all three tables (run by the project owner in the Supabase SQL Editor; the agent did not touch this — RLS toggling is a production-security-relevant change that stayed under human control):
+**M2 hit the exact same auto-RLS for `public.voice_transcriptions`** — the new transcription table got force-enabled the moment the migration created it, blocking the `complete` route's transcription-job insert with the same 42501. Same fix applied; rolled into this same debt entry.
+
+As an explicit deferral, we disabled RLS on all four tables (run by the project owner in the Supabase SQL Editor; the agent did not touch this — RLS toggling is a production-security-relevant change that stayed under human control):
 
 ```sql
-alter table public.aircraft            disable row level security;
-alter table public.preflight_sessions  disable row level security;
-alter table public.media_assets        disable row level security;
+alter table public.aircraft             disable row level security;
+alter table public.preflight_sessions   disable row level security;
+alter table public.media_assets         disable row level security;
+alter table public.voice_transcriptions disable row level security;  -- M2 addition
 ```
 
-### Debt 2 — Broad anon GRANTs on three tables
+### Debt 2 — Broad anon GRANTs on four tables (three M1 + one M2)
 
 Even after disabling RLS, the publishable key was still being rejected. Diagnostic queries showed Supabase's new Data API path requires explicit `GRANT`s to the `anon` role to be visible (the legacy implicit grants are not the same in the publishable-key world). To unblock M1 we ran:
 
 ```sql
-grant select, insert, update, delete on public.aircraft            to anon;
-grant select, insert, update, delete on public.preflight_sessions  to anon;
-grant select, insert, update, delete on public.media_assets        to anon;
+grant select, insert, update, delete on public.aircraft             to anon;
+grant select, insert, update, delete on public.preflight_sessions   to anon;
+grant select, insert, update, delete on public.media_assets         to anon;
+grant select, insert, update, delete on public.voice_transcriptions to anon;  -- M2 addition
 ```
 
 Diagnostic output captured at the moment of the fix (kept here for the record):
