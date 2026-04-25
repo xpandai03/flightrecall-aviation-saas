@@ -2,6 +2,12 @@ export type InputType = "photo" | "voice" | "no_issues";
 export type StatusColor = "green" | "yellow" | "red";
 export type MediaType = "photo" | "audio";
 export type UploadStatus = "pending" | "uploaded" | "failed";
+export type QuickTag = "scratch" | "dent" | "tire" | "oil" | "other";
+export type TranscriptionStatus =
+  | "pending"
+  | "processing"
+  | "completed"
+  | "failed";
 
 export type Aircraft = {
   id: string;
@@ -33,9 +39,26 @@ export type MediaAsset = {
   mime_type: string | null;
   file_size_bytes: number | null;
   upload_status: UploadStatus;
+  quick_tag: QuickTag | null;
   created_at: string;
+};
+
+export type VoiceTranscription = {
+  id: string;
+  media_asset_id: string;
+  preflight_session_id: string;
+  transcription_status: TranscriptionStatus;
+  transcript_text: string | null;
+  language: string | null;
+  duration_seconds: number | null;
+  model: string;
+  error_message: string | null;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
 };
 
 export type PreflightSessionWithMedia = PreflightSession & {
   media_assets: MediaAsset[];
+  voice_transcriptions: VoiceTranscription[];
 };
