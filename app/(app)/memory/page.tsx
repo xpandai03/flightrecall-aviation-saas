@@ -3,11 +3,11 @@
 import { AlertTriangle, Clock, Sparkles } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
+import { useSessions } from "@/lib/api/sessions"
 import {
   recentObservations,
   repeatedObservations,
-  useSessions,
-} from "@/lib/mock-data"
+} from "@/lib/mock-helpers"
 
 export default function MemoryPage() {
   const { sessions } = useSessions()

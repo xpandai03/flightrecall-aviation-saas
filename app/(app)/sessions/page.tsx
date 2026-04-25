@@ -11,7 +11,8 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
-import { useSessions, type Session } from "@/lib/mock-data"
+import { useSessions } from "@/lib/api/sessions"
+import type { Session } from "@/lib/mock-helpers"
 
 export default function SessionsPage() {
   const { sessions } = useSessions()

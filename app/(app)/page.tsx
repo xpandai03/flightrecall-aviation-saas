@@ -15,7 +15,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { useAudioLevel } from "@/hooks/use-audio-level"
-import { useSessions, type Observation } from "@/lib/mock-data"
+import { useSessions } from "@/lib/api/sessions"
+import type { Observation } from "@/lib/mock-helpers"
 
 type FlowState = "idle" | "listening" | "completed"
 
@@ -71,13 +72,17 @@ export default function DashboardPage() {
       const brakeSeenBefore = sessions.some((s) =>
         s.notes.some((n) => n.text.toLowerCase().includes("brake softness")),
       )
-      addSession({
-        id: `s-${Date.now()}`,
-        aircraft: "N739X",
-        date: todayLabel(),
-        notes,
-        photos,
-        repeatedFlags: brakeSeenBefore ? ["Brake softness"] : [],
+      const transcriptText = notes.map((n) => n.text).join("\n")
+      void addSession({
+        input_type: "voice",
+        transcript_text: transcriptText,
+        optimisticNotes: notes,
+        optimisticPhotos: photos,
+        optimisticRepeatedFlags: brakeSeenBefore ? ["Brake softness"] : [],
+      }).catch((err) => {
+        toast.error("Failed to save session", {
+          description: err instanceof Error ? err.message : String(err),
+        })
       })
     },
     [addSession, sessions],
