@@ -9,7 +9,12 @@ const idSchema = z.string().uuid();
 
 const bodySchema = z.object({
   action: z.enum(["still", "fixed", "skipped"]),
-  preflight_session_id: z.string().uuid(),
+  // Optional: when carry-forward fires from the dashboard root (no
+  // session yet), we still want to mutate issue state immediately. We
+  // skip the observations insert in that case to avoid the NOT NULL FK
+  // (V1 trade-off — out-of-band actions don't appear in any session's
+  // "Previous actions" history).
+  preflight_session_id: z.string().uuid().optional(),
 });
 
 export async function POST(
@@ -92,20 +97,26 @@ export async function POST(
   }
   // 'skipped' → no issue mutation
 
-  const { data: observation, error: obsErr } = await supabase
-    .from("issue_observations")
-    .insert({
-      issue_id: issue.id,
-      preflight_session_id,
-      action,
-    })
-    .select()
-    .single();
-  if (obsErr || !observation) {
-    return NextResponse.json(
-      { error: obsErr?.message ?? "Failed to insert observation" },
-      { status: 500 },
-    );
+  // Only record an observation row when we have a session to attach it
+  // to. Out-of-band actions (no session) just mutate issue state.
+  let observation: unknown = null;
+  if (preflight_session_id) {
+    const { data: obs, error: obsErr } = await supabase
+      .from("issue_observations")
+      .insert({
+        issue_id: issue.id,
+        preflight_session_id,
+        action,
+      })
+      .select()
+      .single();
+    if (obsErr || !obs) {
+      return NextResponse.json(
+        { error: obsErr?.message ?? "Failed to insert observation" },
+        { status: 500 },
+      );
+    }
+    observation = obs;
   }
 
   return NextResponse.json(

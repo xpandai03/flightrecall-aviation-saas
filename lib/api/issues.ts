@@ -39,8 +39,11 @@ export function fetchAircraftIssues(
 
 export function postIssueObservation(
   issueId: string,
-  body: { action: Exclude<IssueAction, "logged">; preflight_session_id: string },
-): Promise<{ observation: IssueObservation; issue: IssueWithType }> {
+  body: {
+    action: Exclude<IssueAction, "logged">;
+    preflight_session_id?: string;
+  },
+): Promise<{ observation: IssueObservation | null; issue: IssueWithType }> {
   return jsonFetch(`/api/v1/issues/${issueId}/observations`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -85,6 +88,7 @@ export function useActiveIssues(aircraftId: string | null): {
   issues: ActiveIssue[];
   loading: boolean;
   refresh: () => void;
+  optimisticallyRemove: (issueId: string) => void;
 } {
   const [issues, setIssues] = React.useState<ActiveIssue[]>([]);
   const [loading, setLoading] = React.useState(false);
@@ -109,5 +113,14 @@ export function useActiveIssues(aircraftId: string | null): {
     };
   }, [aircraftId, tick]);
 
-  return { issues, loading, refresh: () => setTick((t) => t + 1) };
+  const optimisticallyRemove = React.useCallback((issueId: string) => {
+    setIssues((prev) => prev.filter((i) => i.id !== issueId));
+  }, []);
+
+  return {
+    issues,
+    loading,
+    refresh: () => setTick((t) => t + 1),
+    optimisticallyRemove,
+  };
 }

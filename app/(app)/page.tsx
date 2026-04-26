@@ -64,9 +64,6 @@ export default function DashboardPage() {
   const [aircraft, setAircraft] = React.useState<Aircraft[]>([]);
   const [aircraftLoaded, setAircraftLoaded] = React.useState(false);
   const [step, setStep] = React.useState<Step>({ kind: "idle" });
-  const [pendingActions, setPendingActions] = React.useState<
-    Map<string, PendingAction>
-  >(new Map());
 
   React.useEffect(() => {
     let cancelled = false;
@@ -92,8 +89,11 @@ export default function DashboardPage() {
   const aircraftTail = defaultAircraft?.tail_number ?? "—";
 
   const aircraftId = defaultAircraft?.id ?? null;
-  const { issues: activeIssues, refresh: refreshActiveIssues } =
-    useActiveIssues(aircraftId);
+  const {
+    issues: activeIssues,
+    refresh: refreshActiveIssues,
+    optimisticallyRemove: removeActiveIssue,
+  } = useActiveIssues(aircraftId);
   const { status: aircraftStatus, refresh: refreshAircraftStatus } =
     useAircraftStatus(aircraftId);
 
@@ -105,47 +105,27 @@ export default function DashboardPage() {
       }
       return { kind: "idle" };
     });
-    setPendingActions(new Map());
     refreshActiveIssues();
     refreshAircraftStatus();
   }, [refreshActiveIssues, refreshAircraftStatus]);
 
+  // Carry-forward actions fire immediately. Optimistically remove the
+  // row, then POST to the server. On failure, surface a toast and
+  // refresh so the row pops back if the server didn't accept it.
   const handleCarryForwardAction = React.useCallback(
-    (issueId: string, action: PendingAction) => {
-      setPendingActions((prev) => {
-        const next = new Map(prev);
-        if (next.get(issueId) === action) {
-          next.delete(issueId);
-        } else {
-          next.set(issueId, action);
-        }
-        return next;
-      });
-    },
-    [],
-  );
-
-  const flushPendingActions = React.useCallback(
-    async (sessionId: string) => {
-      if (pendingActions.size === 0) return;
-      const entries = Array.from(pendingActions.entries());
-      const results = await Promise.allSettled(
-        entries.map(([issueId, action]) =>
-          postIssueObservation(issueId, {
-            action,
-            preflight_session_id: sessionId,
-          }),
-        ),
-      );
-      const failures = results.filter((r) => r.status === "rejected");
-      if (failures.length > 0) {
-        toast.error(
-          `${failures.length} issue ${failures.length === 1 ? "action" : "actions"} failed to record`,
-        );
+    async (issueId: string, action: PendingAction) => {
+      removeActiveIssue(issueId);
+      try {
+        await postIssueObservation(issueId, { action });
+        refreshAircraftStatus();
+      } catch (err) {
+        toast.error("Couldn't record action", {
+          description: err instanceof Error ? err.message : String(err),
+        });
+        refreshActiveIssues();
       }
-      setPendingActions(new Map());
     },
-    [pendingActions],
+    [removeActiveIssue, refreshActiveIssues, refreshAircraftStatus],
   );
 
   const handlePick = (choice: "voice" | "photo" | "no_issues") => {
@@ -167,7 +147,6 @@ export default function DashboardPage() {
         input_type: "no_issues",
         status_color: "green",
       });
-      await flushPendingActions(session.id);
       setStep({ kind: "confirming", session, mode: "no_issues" });
     } catch (err) {
       toast.error("Couldn't save session", {
@@ -193,7 +172,6 @@ export default function DashboardPage() {
         file_name: name,
         mime_type: result.mimeType,
       });
-      await flushPendingActions(session.id);
       toast.success("Saved", {
         description: "Recording captured. Transcribing…",
       });
@@ -234,7 +212,6 @@ export default function DashboardPage() {
         mime_type: file.type || "image/jpeg",
         quick_tag: quickTag ?? undefined,
       });
-      await flushPendingActions(session.id);
       toast.success("Saved", { description: "Photo logged to this session." });
       setStep({
         kind: "confirming",
@@ -276,7 +253,6 @@ export default function DashboardPage() {
       {step.kind === "idle" && activeIssues.length > 0 && (
         <CarryForward
           issues={activeIssues}
-          pendingActions={pendingActions}
           onAction={handleCarryForwardAction}
           disabled={false}
           totalActiveCount={aircraftStatus?.active_issue_count}
