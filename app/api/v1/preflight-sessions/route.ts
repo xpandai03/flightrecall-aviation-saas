@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { z } from "zod";
 import { createClient } from "@/utils/supabase/server";
+import { computeStatusColor } from "@/lib/status-color";
 
 export const dynamic = "force-dynamic";
 
@@ -32,9 +33,36 @@ export async function POST(request: Request) {
   const cookieStore = await cookies();
   const supabase = createClient(cookieStore);
 
+  // M3: snapshot the aircraft's status_color into the session row at
+  // creation time. For voice/photo we override any client-supplied value
+  // with the live algorithmic count. For no_issues we keep the
+  // declarative 'green' regardless of count (locked V1 decision; see
+  // m3 plan §10 Q5).
+  let computed_status_color = parsed.data.status_color ?? null;
+  if (parsed.data.input_type === "no_issues") {
+    computed_status_color = "green";
+  } else {
+    const { count, error: countErr } = await supabase
+      .from("issues")
+      .select("*", { count: "exact", head: true })
+      .eq("aircraft_id", parsed.data.aircraft_id)
+      .eq("current_status", "active");
+    if (!countErr) {
+      computed_status_color = computeStatusColor(count ?? 0);
+    } else {
+      // Don't fail session creation on a status-color compute hiccup.
+      console.error("status_color compute failed", countErr);
+    }
+  }
+
+  const insertPayload = {
+    ...parsed.data,
+    status_color: computed_status_color,
+  };
+
   const { data, error } = await supabase
     .from("preflight_sessions")
-    .insert(parsed.data)
+    .insert(insertPayload)
     .select()
     .single();
 
@@ -68,7 +96,9 @@ export async function GET(request: Request) {
 
   let q = supabase
     .from("preflight_sessions")
-    .select("*, media_assets(*), voice_transcriptions(*)")
+    .select(
+      "*, media_assets(*), voice_transcriptions(*), issue_observations(*, issue:issues(*, issue_type:issue_types(*)))",
+    )
     .order("created_at", { ascending: false })
     .limit(limit);
 

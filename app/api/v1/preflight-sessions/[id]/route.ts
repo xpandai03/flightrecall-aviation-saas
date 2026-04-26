@@ -26,7 +26,9 @@ export async function GET(
 
   const { data, error } = await supabase
     .from("preflight_sessions")
-    .select("*, media_assets(*), voice_transcriptions(*)")
+    .select(
+      "*, media_assets(*), voice_transcriptions(*), issue_observations(*, issue:issues(*, issue_type:issue_types(*)))",
+    )
     .eq("id", parsed.data)
     .maybeSingle();
 
