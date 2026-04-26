@@ -10,9 +10,12 @@ const idSchema = z.string().uuid();
 /**
  * Aircraft-scoped layout. Server-component check that the id in the URL
  * belongs to the authenticated user — RLS enforces, the SELECT either
- * returns one row (yours) or zero (anyone else's). Sets a
- * `last_aircraft_id` cookie so the root smart-redirect can return here
- * next time.
+ * returns one row (yours) or zero (anyone else's).
+ *
+ * Note: the `last_aircraft_id` cookie that powers the root smart-redirect
+ * is written in middleware (utils/supabase/middleware.ts updateSession),
+ * NOT here. Server Components can't write cookies in Next 15+ — only
+ * middleware, Route Handlers, and Server Actions can.
  */
 export default async function AircraftLayout({
   params,
@@ -38,16 +41,6 @@ export default async function AircraftLayout({
   if (error || !data) {
     notFound();
   }
-
-  // Set last_aircraft_id cookie for the root smart-redirect.
-  // 30-day window; httpOnly + Lax to prevent JS read + cross-site GETs.
-  cookieStore.set("last_aircraft_id", parsed.data, {
-    path: "/",
-    maxAge: 60 * 60 * 24 * 30,
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-  });
 
   return <>{children}</>;
 }

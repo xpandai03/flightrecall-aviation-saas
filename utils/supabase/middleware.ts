@@ -7,6 +7,9 @@ const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 const PUBLIC_PATHS = ["/login", "/signup", "/auth/", "/api/v1/"];
 const AUTH_PAGES = ["/login", "/signup"];
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const AIRCRAFT_PATH_RE = /^\/aircraft\/([^/]+)(?:\/|$)/;
+
 function isPublicPath(path: string): boolean {
   if (path === "/") return false;
   return PUBLIC_PATHS.some((p) => path === p || path.startsWith(p));
@@ -14,6 +17,12 @@ function isPublicPath(path: string): boolean {
 
 function isAuthPage(path: string): boolean {
   return AUTH_PAGES.some((p) => path === p || path.startsWith(p + "/"));
+}
+
+function aircraftIdFromPath(path: string): string | null {
+  const m = path.match(AIRCRAFT_PATH_RE);
+  if (!m) return null;
+  return UUID_RE.test(m[1]) ? m[1] : null;
 }
 
 /**
@@ -65,6 +74,24 @@ export async function updateSession(request: NextRequest) {
     url.pathname = "/";
     url.search = "";
     return NextResponse.redirect(url);
+  }
+
+  // Cookie writes are legal here (middleware), unlike from Server Components.
+  // When the user is on an /aircraft/<uuid>/* page, stamp the
+  // last_aircraft_id cookie so the root smart-redirect can return them
+  // here next time. Only do this for valid UUIDs to avoid stamping junk
+  // (e.g. /aircraft/foo/bar where foo isn't a real id).
+  if (user) {
+    const aircraftId = aircraftIdFromPath(path);
+    if (aircraftId) {
+      supabaseResponse.cookies.set("last_aircraft_id", aircraftId, {
+        path: "/",
+        maxAge: 60 * 60 * 24 * 30,
+        httpOnly: true,
+        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production",
+      });
+    }
   }
 
   return supabaseResponse;
