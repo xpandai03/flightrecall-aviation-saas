@@ -1,7 +1,14 @@
 "use client"
 
 import * as React from "react"
-import { AlertTriangle, Camera, CheckCircle2, ChevronRight, Plane } from "lucide-react"
+import {
+  AlertTriangle,
+  Camera,
+  CheckCircle2,
+  ChevronRight,
+  ImageOff,
+  Plane,
+} from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import {
@@ -11,8 +18,12 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
-import { useSessions } from "@/lib/api/sessions"
+import { getSession, useSessions } from "@/lib/api/sessions"
 import type { Session } from "@/lib/mock-helpers"
+import type {
+  MediaAssetWithSignedUrl,
+  PreflightSessionDetail,
+} from "@/lib/types/database"
 
 export default function SessionsPage() {
   const { sessions } = useSessions()
@@ -109,6 +120,41 @@ function SessionCard({ session, onOpen }: { session: Session; onOpen: () => void
 
 function SessionDetail({ session }: { session: Session }) {
   const clean = session.notes.every((n) => n.text.toLowerCase().includes("no issues"))
+
+  const [detail, setDetail] = React.useState<PreflightSessionDetail | null>(null)
+  const [loadingDetail, setLoadingDetail] = React.useState(false)
+  const [detailError, setDetailError] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    let cancelled = false
+    setLoadingDetail(true)
+    setDetailError(null)
+    setDetail(null)
+    getSession(session.id)
+      .then((d) => {
+        if (cancelled) return
+        setDetail(d)
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return
+        setDetailError(err instanceof Error ? err.message : String(err))
+      })
+      .finally(() => {
+        if (cancelled) return
+        setLoadingDetail(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [session.id])
+
+  const photoAssets = (detail?.media_assets ?? []).filter(
+    (a) => a.media_type === "photo",
+  )
+  const audioAssets = (detail?.media_assets ?? []).filter(
+    (a) => a.media_type === "audio",
+  )
+
   return (
     <>
       <SheetHeader>
@@ -163,24 +209,104 @@ function SessionDetail({ session }: { session: Session }) {
           </ul>
         </section>
 
-        {session.photos.length > 0 && (
+        {(loadingDetail || audioAssets.length > 0) && (
+          <section>
+            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2">
+              Audio
+            </div>
+            {loadingDetail && audioAssets.length === 0 ? (
+              <div className="h-12 rounded-lg bg-muted animate-pulse" />
+            ) : (
+              <ul className="space-y-2">
+                {audioAssets.map((asset) => (
+                  <li key={asset.id}>
+                    <AudioPlayer asset={asset} />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
+
+        {(loadingDetail || photoAssets.length > 0) && (
           <section>
             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2">
               Photos
             </div>
-            <div className="grid grid-cols-3 gap-2">
-              {session.photos.map((p, i) => (
-                <div
-                  key={p + i}
-                  className="aspect-square rounded-lg bg-gradient-to-br from-slate-200 via-sky-100 to-slate-300 ring-1 ring-border/60 flex items-center justify-center"
-                >
-                  <Plane className="size-6 text-slate-500/60 -rotate-45" />
-                </div>
-              ))}
-            </div>
+            {loadingDetail && photoAssets.length === 0 ? (
+              <div className="grid grid-cols-3 gap-2">
+                {Array.from({ length: Math.max(1, session.photos.length) }).map(
+                  (_, i) => (
+                    <div
+                      key={i}
+                      className="aspect-square rounded-lg bg-muted animate-pulse"
+                    />
+                  ),
+                )}
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 gap-2">
+                {photoAssets.map((asset) => (
+                  <PhotoTile key={asset.id} asset={asset} />
+                ))}
+              </div>
+            )}
           </section>
+        )}
+
+        {detailError && (
+          <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            Couldn't load media for this session: {detailError}
+          </div>
         )}
       </div>
     </>
+  )
+}
+
+function PhotoTile({ asset }: { asset: MediaAssetWithSignedUrl }) {
+  if (!asset.signed_url) {
+    return (
+      <div className="aspect-square rounded-lg bg-muted ring-1 ring-border/60 flex flex-col items-center justify-center text-muted-foreground gap-1">
+        <ImageOff className="size-5" />
+        <span className="text-[10px]">Unavailable</span>
+      </div>
+    )
+  }
+  return (
+    <div className="relative aspect-square rounded-lg overflow-hidden ring-1 ring-border/60 bg-muted">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={asset.signed_url}
+        alt={asset.file_name ?? "Preflight photo"}
+        className="absolute inset-0 w-full h-full object-cover"
+        loading="lazy"
+      />
+      {asset.quick_tag && (
+        <span className="absolute bottom-1 left-1 inline-flex items-center rounded-full bg-white/90 backdrop-blur px-1.5 py-0.5 text-[10px] font-medium text-sky-700 capitalize ring-1 ring-sky-200">
+          {asset.quick_tag}
+        </span>
+      )}
+    </div>
+  )
+}
+
+function AudioPlayer({ asset }: { asset: MediaAssetWithSignedUrl }) {
+  if (!asset.signed_url) {
+    return (
+      <div className="text-xs text-muted-foreground italic">
+        Audio unavailable
+      </div>
+    )
+  }
+  return (
+    <audio
+      controls
+      preload="metadata"
+      src={asset.signed_url}
+      className="w-full"
+    >
+      Your browser does not support the audio element.
+    </audio>
   )
 }
