@@ -11,12 +11,19 @@ export type TranscriptionStatus =
 
 export type Aircraft = {
   id: string;
+  user_id: string;
   tail_number: string;
+  aircraft_type: string | null;
   make: string | null;
   model: string | null;
   year: number | null;
   created_at: string;
   updated_at: string;
+};
+
+export type AuthUser = {
+  id: string;
+  email: string | null;
 };
 
 export type PreflightSession = {
