@@ -2,10 +2,8 @@
 
 import * as React from "react";
 import { toast } from "sonner";
-import { Loader2, Mic, Plane } from "lucide-react";
+import { Loader2, Plane } from "lucide-react";
 
-import { Orb } from "@/components/orb";
-import { Button } from "@/components/ui/button";
 import { EntryChoice } from "@/components/preflight/entry-choice";
 import { VoiceRecorder } from "@/components/preflight/voice-recorder";
 import {
@@ -37,7 +35,6 @@ type PendingAction = Exclude<IssueAction, "logged">;
 
 type Step =
   | { kind: "idle" }
-  | { kind: "choosing" }
   | { kind: "recording" }
   | { kind: "capturing" }
   | {
@@ -150,8 +147,6 @@ export default function DashboardPage() {
     },
     [pendingActions],
   );
-
-  const handleStart = () => setStep({ kind: "choosing" });
 
   const handlePick = (choice: "voice" | "photo" | "no_issues") => {
     if (!defaultAircraft) {
@@ -278,27 +273,22 @@ export default function DashboardPage() {
         </p>
       </div>
 
-      {(step.kind === "idle" || step.kind === "choosing") &&
-        activeIssues.length > 0 && (
-          <CarryForward
-            issues={activeIssues}
-            pendingActions={pendingActions}
-            onAction={handleCarryForwardAction}
-            disabled={false}
-            totalActiveCount={aircraftStatus?.active_issue_count}
-          />
-        )}
-
-      {step.kind === "idle" && (
-        <IdleHero
-          onStart={handleStart}
-          disabled={!aircraftLoaded || !defaultAircraft}
+      {step.kind === "idle" && activeIssues.length > 0 && (
+        <CarryForward
+          issues={activeIssues}
+          pendingActions={pendingActions}
+          onAction={handleCarryForwardAction}
+          disabled={false}
+          totalActiveCount={aircraftStatus?.active_issue_count}
         />
       )}
 
-      {step.kind === "choosing" && (
-        <EntryChoice onPick={handlePick} onCancel={reset} />
-      )}
+      {step.kind === "idle" &&
+        (aircraftLoaded && defaultAircraft ? (
+          <EntryChoice onPick={handlePick} />
+        ) : (
+          <p className="text-sm text-muted-foreground">Loading aircraft…</p>
+        ))}
 
       {step.kind === "recording" && (
         <VoiceRecorder
@@ -385,28 +375,3 @@ function StatusChip({
   );
 }
 
-function IdleHero({
-  onStart,
-  disabled,
-}: {
-  onStart: () => void;
-  disabled: boolean;
-}) {
-  return (
-    <>
-      <Orb state="idle" audioLevel={0} />
-      <Button
-        size="lg"
-        onClick={onStart}
-        disabled={disabled}
-        className="h-12 px-7 rounded-full shadow-sm"
-      >
-        <Mic className="size-4" />
-        Start Preflight
-      </Button>
-      {disabled && (
-        <p className="text-xs text-muted-foreground">Loading aircraft…</p>
-      )}
-    </>
-  );
-}

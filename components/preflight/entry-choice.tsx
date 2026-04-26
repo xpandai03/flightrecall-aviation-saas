@@ -9,7 +9,7 @@ export function EntryChoice({
   onCancel,
 }: {
   onPick: (choice: Choice) => void;
-  onCancel: () => void;
+  onCancel?: () => void;
 }) {
   return (
     <div className="flex flex-col items-center gap-6 w-full max-w-md">
@@ -44,13 +44,15 @@ export function EntryChoice({
         />
       </div>
 
-      <button
-        type="button"
-        onClick={onCancel}
-        className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-      >
-        Cancel
-      </button>
+      {onCancel && (
+        <button
+          type="button"
+          onClick={onCancel}
+          className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          Cancel
+        </button>
+      )}
     </div>
   );
 }

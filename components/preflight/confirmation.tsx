@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, Loader2, Plane, AlertTriangle } from "lucide-react";
+import { CheckCircle2, Plane, AlertTriangle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { InputType, QuickTag, StatusColor } from "@/lib/types/database";
@@ -65,26 +65,24 @@ export function Confirmation({
   photo,
   onDone,
 }: ConfirmationProps) {
-  const stillTranscribing =
-    inputType === "voice" &&
+  const isVoice = inputType === "voice";
+  const voiceContentReady = Boolean(
     poll &&
-    (poll.phase === "polling" || poll.status === "pending" || poll.status === "processing");
+      (poll.phase === "completed" ||
+        poll.phase === "failed" ||
+        poll.phase === "timed_out"),
+  );
+  // For voice we render an empty placeholder card while polling — no
+  // "Transcribing…" copy. The session is already saved (toast fired
+  // upstream); the transcript fills in when the poll completes.
+  const showVoicePanel = isVoice && voiceContentReady;
+  const showVoiceEmpty = isVoice && !voiceContentReady;
 
   return (
     <div className="w-full max-w-md flex flex-col items-center gap-6">
       <div className="flex flex-col items-center gap-2 text-center">
-        <span
-          className={`flex size-12 items-center justify-center rounded-full ${
-            stillTranscribing
-              ? "bg-sky-50 text-sky-600"
-              : "bg-emerald-50 text-emerald-600"
-          }`}
-        >
-          {stillTranscribing ? (
-            <Loader2 className="size-5 animate-spin" />
-          ) : (
-            <CheckCircle2 className="size-5" />
-          )}
+        <span className="flex size-12 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
+          <CheckCircle2 className="size-5" />
         </span>
         <h1 className="text-2xl font-semibold tracking-tight">Preflight Logged</h1>
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -101,21 +99,17 @@ export function Confirmation({
           <p className="text-sm text-foreground">All systems nominal.</p>
         )}
 
-        {inputType === "voice" && poll && (
-          <VoicePanel poll={poll} />
-        )}
+        {showVoicePanel && poll && <VoicePanel poll={poll} />}
+
+        {showVoiceEmpty && <div aria-hidden className="min-h-[5rem]" />}
 
         {inputType === "photo" && photo && (
           <PhotoPanel previewUrl={photo.previewUrl} quickTag={photo.quickTag} />
         )}
       </div>
 
-      <Button
-        size="lg"
-        onClick={onDone}
-        className="rounded-full px-8 h-11"
-      >
-        {stillTranscribing ? "Done · transcript will arrive shortly" : "Done"}
+      <Button size="lg" onClick={onDone} className="rounded-full px-8 h-11">
+        Done
       </Button>
     </div>
   );
@@ -151,12 +145,7 @@ function VoicePanel({ poll }: { poll: PollResult }) {
     );
   }
 
-  return (
-    <div className="flex items-center gap-3 text-sm text-muted-foreground">
-      <Loader2 className="size-4 animate-spin text-sky-500" />
-      Transcribing… (attempt {poll.attempts + 1})
-    </div>
-  );
+  return null;
 }
 
 function PhotoPanel({
