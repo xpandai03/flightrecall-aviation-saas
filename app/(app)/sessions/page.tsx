@@ -92,15 +92,7 @@ function SessionCard({ session, onOpen }: { session: Session; onOpen: () => void
       </div>
 
       <div className="mt-4 flex items-center gap-3 text-xs text-muted-foreground">
-        {clean ? (
-          <Badge variant="secondary" className="bg-emerald-50 text-emerald-700 hover:bg-emerald-50">
-            No issues
-          </Badge>
-        ) : (
-          <Badge variant="secondary" className="bg-amber-50 text-amber-700 hover:bg-amber-50">
-            {issueCount} {issueCount === 1 ? "finding" : "findings"}
-          </Badge>
-        )}
+        <StatusPill color={session.statusColor} fallbackClean={clean} fallbackIssueCount={issueCount} />
         {session.photos.length > 0 && (
           <span className="inline-flex items-center gap-1">
             <Camera className="size-3" />
@@ -228,6 +220,23 @@ function SessionDetail({ session }: { session: Session }) {
           </section>
         )}
 
+        {detail && detail.issue_observations && detail.issue_observations.length > 0 && (
+          <section>
+            <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2">
+              Previous issue actions
+            </div>
+            <ul className="space-y-1.5">
+              {detail.issue_observations.map((obs) => (
+                <li key={obs.id} className="flex items-center gap-2 text-sm">
+                  <span className="size-1.5 rounded-full bg-sky-500 shrink-0" />
+                  <span className="font-medium">{obs.issue.issue_type.name}</span>
+                  <span className="text-muted-foreground">— {actionCopy(obs.action)}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
         {(loadingDetail || photoAssets.length > 0) && (
           <section>
             <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-2">
@@ -261,6 +270,62 @@ function SessionDetail({ session }: { session: Session }) {
         )}
       </div>
     </>
+  )
+}
+
+function actionCopy(action: string): string {
+  switch (action) {
+    case "logged":  return "Logged from photo"
+    case "still":   return "Marked still present"
+    case "fixed":   return "Marked fixed"
+    case "skipped": return "Skipped"
+    default:        return action
+  }
+}
+
+function StatusPill({
+  color,
+  fallbackClean,
+  fallbackIssueCount,
+}: {
+  color: "green" | "yellow" | "red" | null
+  fallbackClean: boolean
+  fallbackIssueCount: number
+}) {
+  if (color === "green") {
+    return (
+      <Badge variant="secondary" className="bg-emerald-50 text-emerald-700 hover:bg-emerald-50">
+        All clear
+      </Badge>
+    )
+  }
+  if (color === "yellow") {
+    return (
+      <Badge variant="secondary" className="bg-amber-50 text-amber-700 hover:bg-amber-50">
+        Watch
+      </Badge>
+    )
+  }
+  if (color === "red") {
+    return (
+      <Badge variant="secondary" className="bg-rose-50 text-rose-700 hover:bg-rose-50">
+        Action needed
+      </Badge>
+    )
+  }
+  // Pre-M3 sessions or status_color compute failure: fall back to the
+  // legacy notes-derived count so old rows still get a sensible chip.
+  if (fallbackClean) {
+    return (
+      <Badge variant="secondary" className="bg-emerald-50 text-emerald-700 hover:bg-emerald-50">
+        No issues
+      </Badge>
+    )
+  }
+  return (
+    <Badge variant="secondary" className="bg-amber-50 text-amber-700 hover:bg-amber-50">
+      {fallbackIssueCount} {fallbackIssueCount === 1 ? "finding" : "findings"}
+    </Badge>
   )
 }
 

@@ -1,3 +1,5 @@
+import type { StatusColor } from "@/lib/types/database";
+
 export type Observation = {
   text: string;
   timestamp?: string;
@@ -10,6 +12,7 @@ export type Session = {
   notes: Observation[];
   photos: string[];
   repeatedFlags: string[];
+  statusColor: StatusColor | null;
 };
 
 export function recentObservations(sessions: Session[], limit = 3): Observation[] {

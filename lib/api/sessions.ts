@@ -174,6 +174,7 @@ export function useSessions(): UseSessionsResult {
             .map((text) => ({ text, timestamp: nowTime() })),
         photos: input.optimisticPhotos ?? [],
         repeatedFlags: input.optimisticRepeatedFlags ?? [],
+        statusColor: input.status_color ?? null,
       };
       setOptimistic((prev) => [placeholder, ...prev]);
       try {

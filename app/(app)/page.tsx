@@ -14,16 +14,26 @@ import {
 } from "@/components/preflight/photo-capture";
 import { QuickTagPicker } from "@/components/preflight/quick-tag-picker";
 import { Confirmation } from "@/components/preflight/confirmation";
+import { CarryForward } from "@/components/preflight/carry-forward";
 import { createSession, listAircraft } from "@/lib/api/sessions";
 import { uploadMedia, audioFileNameForMime } from "@/lib/api/media";
+import {
+  postIssueObservation,
+  useActiveIssues,
+  useAircraftStatus,
+} from "@/lib/api/issues";
 import { useTranscriptionPoll } from "@/hooks/use-transcription-poll";
 import type {
   Aircraft,
   InputType,
+  IssueAction,
   PreflightSession,
   QuickTag,
+  StatusColor,
 } from "@/lib/types/database";
 import type { RecorderResult } from "@/hooks/use-media-recorder";
+
+type PendingAction = Exclude<IssueAction, "logged">;
 
 type Step =
   | { kind: "idle" }
@@ -57,6 +67,9 @@ export default function DashboardPage() {
   const [aircraft, setAircraft] = React.useState<Aircraft[]>([]);
   const [aircraftLoaded, setAircraftLoaded] = React.useState(false);
   const [step, setStep] = React.useState<Step>({ kind: "idle" });
+  const [pendingActions, setPendingActions] = React.useState<
+    Map<string, PendingAction>
+  >(new Map());
 
   React.useEffect(() => {
     let cancelled = false;
@@ -81,6 +94,12 @@ export default function DashboardPage() {
   const defaultAircraft = aircraft[0] ?? null;
   const aircraftTail = defaultAircraft?.tail_number ?? "—";
 
+  const aircraftId = defaultAircraft?.id ?? null;
+  const { issues: activeIssues, refresh: refreshActiveIssues } =
+    useActiveIssues(aircraftId);
+  const { status: aircraftStatus, refresh: refreshAircraftStatus } =
+    useAircraftStatus(aircraftId);
+
   const reset = React.useCallback(() => {
     setStep((prev) => {
       if (prev.kind === "tagging") URL.revokeObjectURL(prev.previewUrl);
@@ -89,7 +108,48 @@ export default function DashboardPage() {
       }
       return { kind: "idle" };
     });
-  }, []);
+    setPendingActions(new Map());
+    refreshActiveIssues();
+    refreshAircraftStatus();
+  }, [refreshActiveIssues, refreshAircraftStatus]);
+
+  const handleCarryForwardAction = React.useCallback(
+    (issueId: string, action: PendingAction) => {
+      setPendingActions((prev) => {
+        const next = new Map(prev);
+        if (next.get(issueId) === action) {
+          next.delete(issueId);
+        } else {
+          next.set(issueId, action);
+        }
+        return next;
+      });
+    },
+    [],
+  );
+
+  const flushPendingActions = React.useCallback(
+    async (sessionId: string) => {
+      if (pendingActions.size === 0) return;
+      const entries = Array.from(pendingActions.entries());
+      const results = await Promise.allSettled(
+        entries.map(([issueId, action]) =>
+          postIssueObservation(issueId, {
+            action,
+            preflight_session_id: sessionId,
+          }),
+        ),
+      );
+      const failures = results.filter((r) => r.status === "rejected");
+      if (failures.length > 0) {
+        toast.error(
+          `${failures.length} issue ${failures.length === 1 ? "action" : "actions"} failed to record`,
+        );
+      }
+      setPendingActions(new Map());
+    },
+    [pendingActions],
+  );
 
   const handleStart = () => setStep({ kind: "choosing" });
 
@@ -112,6 +172,7 @@ export default function DashboardPage() {
         input_type: "no_issues",
         status_color: "green",
       });
+      await flushPendingActions(session.id);
       setStep({ kind: "confirming", session, mode: "no_issues" });
     } catch (err) {
       toast.error("Couldn't save session", {
@@ -137,6 +198,7 @@ export default function DashboardPage() {
         file_name: name,
         mime_type: result.mimeType,
       });
+      await flushPendingActions(session.id);
       toast.success("Saved", {
         description: "Recording captured. Transcribing…",
       });
@@ -177,6 +239,7 @@ export default function DashboardPage() {
         mime_type: file.type || "image/jpeg",
         quick_tag: quickTag ?? undefined,
       });
+      await flushPendingActions(session.id);
       toast.success("Saved", { description: "Photo logged to this session." });
       setStep({
         kind: "confirming",
@@ -203,10 +266,10 @@ export default function DashboardPage() {
   return (
     <div className="flex flex-col items-center gap-10 py-4 sm:py-10">
       <div className="flex flex-col items-center text-center gap-2">
-        <div className="inline-flex items-center gap-1.5 rounded-full border border-sky-200/70 bg-sky-50/70 px-3 py-1 text-xs font-medium text-sky-700">
-          <Plane className="size-3 -rotate-45" />
-          Preflight · {todayLabel()} · {aircraftTail}
-        </div>
+        <StatusChip
+          color={aircraftStatus?.status_color ?? null}
+          label={`Preflight · ${todayLabel()} · ${aircraftTail}`}
+        />
         <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight">
           Flight Recall
         </h1>
@@ -214,6 +277,17 @@ export default function DashboardPage() {
           Voice-first preflight logging. Speak what you see, we remember.
         </p>
       </div>
+
+      {(step.kind === "idle" || step.kind === "choosing") &&
+        activeIssues.length > 0 && (
+          <CarryForward
+            issues={activeIssues}
+            pendingActions={pendingActions}
+            onAction={handleCarryForwardAction}
+            disabled={false}
+            totalActiveCount={aircraftStatus?.active_issue_count}
+          />
+        )}
 
       {step.kind === "idle" && (
         <IdleHero
@@ -282,6 +356,31 @@ export default function DashboardPage() {
           onDone={reset}
         />
       )}
+    </div>
+  );
+}
+
+function StatusChip({
+  color,
+  label,
+}: {
+  color: StatusColor | null;
+  label: string;
+}) {
+  const cls =
+    color === "green"
+      ? "border-emerald-200/70 bg-emerald-50/70 text-emerald-700"
+      : color === "yellow"
+        ? "border-amber-200/70 bg-amber-50/70 text-amber-700"
+        : color === "red"
+          ? "border-rose-200/70 bg-rose-50/70 text-rose-700"
+          : "border-sky-200/70 bg-sky-50/70 text-sky-700";
+  return (
+    <div
+      className={`inline-flex items-center gap-1.5 rounded-full border ${cls} px-3 py-1 text-xs font-medium`}
+    >
+      <Plane className="size-3 -rotate-45" />
+      {label}
     </div>
   );
 }

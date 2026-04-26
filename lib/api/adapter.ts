@@ -116,5 +116,6 @@ export function adaptSession(
     notes,
     photos,
     repeatedFlags: computeRepeatedFlags(row, allRows),
+    statusColor: row.status_color,
   };
 }
