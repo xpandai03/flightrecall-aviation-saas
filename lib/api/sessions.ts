@@ -120,7 +120,7 @@ function nowTime(): string {
   });
 }
 
-export function useSessions(): UseSessionsResult {
+export function useSessions(aircraftId?: string): UseSessionsResult {
   const [aircraft, setAircraft] = React.useState<Aircraft[]>([]);
   const [rows, setRows] = React.useState<PreflightSessionWithMedia[]>([]);
   const [optimistic, setOptimistic] = React.useState<Session[]>([]);
@@ -131,7 +131,10 @@ export function useSessions(): UseSessionsResult {
     setLoading(true);
     setError(null);
     try {
-      const [acft, ses] = await Promise.all([listAircraft(), listSessions()]);
+      const [acft, ses] = await Promise.all([
+        listAircraft(),
+        listSessions(aircraftId ? { aircraftId } : undefined),
+      ]);
       setAircraft(acft);
       setRows(ses);
       setOptimistic([]);
@@ -140,7 +143,7 @@ export function useSessions(): UseSessionsResult {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [aircraftId]);
 
   React.useEffect(() => {
     refresh();

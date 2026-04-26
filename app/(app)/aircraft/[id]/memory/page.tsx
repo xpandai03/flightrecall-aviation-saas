@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useParams } from "next/navigation";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -37,6 +38,9 @@ function formatTime(iso: string): string {
 }
 
 export default function MemoryPage() {
+  const params = useParams<{ id: string }>();
+  const aircraftId = params.id;
+
   const [aircraft, setAircraft] = React.useState<Aircraft | null>(null);
   const [sessions, setSessions] = React.useState<PreflightSessionWithMedia[]>([]);
   const [issues, setIssues] = React.useState<AircraftIssuesResponse>({
@@ -47,6 +51,7 @@ export default function MemoryPage() {
   const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
+    if (!aircraftId) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -54,15 +59,15 @@ export default function MemoryPage() {
       try {
         const acft = await listAircraft();
         if (cancelled) return;
-        const primary = acft[0] ?? null;
-        setAircraft(primary);
-        if (!primary) {
+        const match = acft.find((a) => a.id === aircraftId) ?? null;
+        setAircraft(match);
+        if (!match) {
           setLoading(false);
           return;
         }
         const [ses, iss] = await Promise.all([
-          listSessions({ aircraftId: primary.id, limit: 100 }),
-          fetchAircraftIssues(primary.id),
+          listSessions({ aircraftId: match.id, limit: 100 }),
+          fetchAircraftIssues(match.id),
         ]);
         if (cancelled) return;
         setSessions(ses);
@@ -78,7 +83,7 @@ export default function MemoryPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [aircraftId]);
 
   return (
     <div className="flex flex-col gap-6 max-w-3xl">

@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useParams } from "next/navigation";
 import { toast } from "sonner";
 import { Loader2, Plane } from "lucide-react";
 
@@ -61,16 +62,21 @@ function todayLabel(): string {
 }
 
 export default function DashboardPage() {
-  const [aircraft, setAircraft] = React.useState<Aircraft[]>([]);
+  const params = useParams<{ id: string }>();
+  const aircraftId = params.id;
+
+  const [aircraft, setAircraft] = React.useState<Aircraft | null>(null);
   const [aircraftLoaded, setAircraftLoaded] = React.useState(false);
   const [step, setStep] = React.useState<Step>({ kind: "idle" });
 
   React.useEffect(() => {
     let cancelled = false;
+    if (!aircraftId) return;
     listAircraft()
       .then((rows) => {
         if (cancelled) return;
-        setAircraft(rows);
+        const match = rows.find((r) => r.id === aircraftId) ?? null;
+        setAircraft(match);
         setAircraftLoaded(true);
       })
       .catch((err) => {
@@ -83,12 +89,10 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [aircraftId]);
 
-  const defaultAircraft = aircraft[0] ?? null;
+  const defaultAircraft = aircraft;
   const aircraftTail = defaultAircraft?.tail_number ?? "—";
-
-  const aircraftId = defaultAircraft?.id ?? null;
   const {
     issues: activeIssues,
     refresh: refreshActiveIssues,

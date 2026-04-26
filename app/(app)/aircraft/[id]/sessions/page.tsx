@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { useParams } from "next/navigation"
 import {
   AlertTriangle,
   Camera,
@@ -26,7 +27,8 @@ import type {
 } from "@/lib/types/database"
 
 export default function SessionsPage() {
-  const { sessions } = useSessions()
+  const params = useParams<{ id: string }>()
+  const { sessions } = useSessions(params.id)
   const [active, setActive] = React.useState<Session | null>(null)
 
   return (
