@@ -5,6 +5,7 @@ import type {
   Aircraft,
   InputType,
   PreflightSession,
+  PreflightSessionDetail,
   PreflightSessionWithMedia,
   StatusColor,
 } from "@/lib/types/database";
@@ -56,8 +57,8 @@ export function listSessions(opts: { aircraftId?: string; limit?: number } = {})
   );
 }
 
-export function getSession(id: string): Promise<PreflightSessionWithMedia> {
-  return jsonFetch<PreflightSessionWithMedia>(`/api/v1/preflight-sessions/${id}`);
+export function getSession(id: string): Promise<PreflightSessionDetail> {
+  return jsonFetch<PreflightSessionDetail>(`/api/v1/preflight-sessions/${id}`);
 }
 
 export function createSession(body: CreateSessionInput): Promise<PreflightSession> {

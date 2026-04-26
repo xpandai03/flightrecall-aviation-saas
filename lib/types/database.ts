@@ -62,3 +62,12 @@ export type PreflightSessionWithMedia = PreflightSession & {
   media_assets: MediaAsset[];
   voice_transcriptions: VoiceTranscription[];
 };
+
+export type MediaAssetWithSignedUrl = MediaAsset & {
+  signed_url: string | null;
+};
+
+export type PreflightSessionDetail = PreflightSession & {
+  media_assets: MediaAssetWithSignedUrl[];
+  voice_transcriptions: VoiceTranscription[];
+};

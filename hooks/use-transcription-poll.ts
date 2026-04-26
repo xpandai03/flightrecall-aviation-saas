@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getSession } from "@/lib/api/sessions";
 import type {
-  PreflightSessionWithMedia,
+  PreflightSessionDetail,
   TranscriptionStatus,
 } from "@/lib/types/database";
 
@@ -58,7 +58,7 @@ export function useTranscriptionPoll(
       attempts += 1;
       cancelRef.current = new AbortController();
       try {
-        const session: PreflightSessionWithMedia = await getSession(sessionId);
+        const session: PreflightSessionDetail = await getSession(sessionId);
         const tx = (session.voice_transcriptions ?? [])[0];
         const status: TranscriptionStatus | null = tx?.transcription_status ?? null;
         const text = session.transcript_text ?? tx?.transcript_text ?? null;

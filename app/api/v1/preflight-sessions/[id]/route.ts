@@ -2,10 +2,14 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { z } from "zod";
 import { createClient } from "@/utils/supabase/server";
+import type { MediaAsset } from "@/lib/types/database";
 
 export const dynamic = "force-dynamic";
 
 const idSchema = z.string().uuid();
+
+const BUCKET = "flight-recall-media";
+const SIGNED_URL_TTL_SECONDS = 3600;
 
 export async function GET(
   _request: Request,
@@ -32,5 +36,24 @@ export async function GET(
   if (!data) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
-  return NextResponse.json(data);
+
+  const rawAssets: MediaAsset[] = data.media_assets ?? [];
+  const media_assets = await Promise.all(
+    rawAssets.map(async (asset) => {
+      const { data: signed, error: signedErr } = await supabase.storage
+        .from(BUCKET)
+        .createSignedUrl(asset.storage_key, SIGNED_URL_TTL_SECONDS);
+      if (signedErr || !signed?.signedUrl) {
+        console.error("signed URL mint failed", {
+          asset_id: asset.id,
+          storage_key: asset.storage_key,
+          error: signedErr?.message,
+        });
+        return { ...asset, signed_url: null };
+      }
+      return { ...asset, signed_url: signed.signedUrl };
+    }),
+  );
+
+  return NextResponse.json({ ...data, media_assets });
 }
