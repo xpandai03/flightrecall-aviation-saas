@@ -40,7 +40,61 @@ export type MediaAsset = {
   file_size_bytes: number | null;
   upload_status: UploadStatus;
   quick_tag: QuickTag | null;
+  issue_id: string | null;
   created_at: string;
+};
+
+export type IssueStatus = "active" | "resolved";
+export type IssueAction = "logged" | "still" | "fixed" | "skipped";
+
+export type IssueType = {
+  id: string;
+  slug: QuickTag;
+  name: string;
+  created_at: string;
+};
+
+export type Issue = {
+  id: string;
+  aircraft_id: string;
+  issue_type_id: string;
+  description: string | null;
+  current_status: IssueStatus;
+  first_seen_at: string;
+  last_seen_at: string;
+  resolved_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type IssueWithType = Issue & {
+  issue_type: IssueType;
+};
+
+export type ActiveIssue = IssueWithType & {
+  flights_since: number;
+};
+
+export type IssueObservation = {
+  id: string;
+  issue_id: string;
+  preflight_session_id: string;
+  action: IssueAction;
+  created_at: string;
+};
+
+export type IssueObservationDetail = IssueObservation & {
+  issue: IssueWithType;
+};
+
+export type AircraftStatus = {
+  status_color: StatusColor;
+  active_issue_count: number;
+};
+
+export type AircraftIssuesResponse = {
+  active: IssueWithType[];
+  resolved: IssueWithType[];
 };
 
 export type VoiceTranscription = {
@@ -70,4 +124,5 @@ export type MediaAssetWithSignedUrl = MediaAsset & {
 export type PreflightSessionDetail = PreflightSession & {
   media_assets: MediaAssetWithSignedUrl[];
   voice_transcriptions: VoiceTranscription[];
+  issue_observations: IssueObservationDetail[];
 };
