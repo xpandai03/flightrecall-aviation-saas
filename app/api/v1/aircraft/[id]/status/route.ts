@@ -21,6 +21,13 @@ export async function GET(
   const cookieStore = await cookies();
   const supabase = createClient(cookieStore);
 
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const { data: aircraft, error: acftErr } = await supabase
     .from("aircraft")
     .select("id")

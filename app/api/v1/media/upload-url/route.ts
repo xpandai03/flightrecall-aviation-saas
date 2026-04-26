@@ -43,9 +43,17 @@ export async function POST(request: Request) {
   const cookieStore = await cookies();
   const supabase = createClient(cookieStore);
 
+  // M4: require auth + scope storage path by user.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const { data: sessionRow, error: sessionErr } = await supabase
     .from("preflight_sessions")
-    .select("id")
+    .select("id, aircraft_id")
     .eq("id", preflight_session_id)
     .maybeSingle();
   if (sessionErr) {
@@ -78,7 +86,9 @@ export async function POST(request: Request) {
   }
 
   const safeName = sanitizeFileName(file_name);
-  const storage_key = `sessions/${preflight_session_id}/${media_type}/${assetRow.id}-${safeName}`;
+  // M4 storage path convention — user/aircraft scoped. Storage RLS
+  // enforces that (storage.foldername(name))[2] = auth.uid()::text.
+  const storage_key = `users/${user.id}/aircraft/${sessionRow.aircraft_id}/sessions/${preflight_session_id}/${media_type}/${assetRow.id}-${safeName}`;
 
   const { error: keyUpdateErr } = await supabase
     .from("media_assets")

@@ -29,3 +29,6 @@ next-env.d.ts
 
 # supabase cli scratch
 supabase/.temp/
+
+# macOS Finder
+.DS_Store

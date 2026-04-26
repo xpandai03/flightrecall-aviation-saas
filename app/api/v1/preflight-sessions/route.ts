@@ -33,6 +33,13 @@ export async function POST(request: Request) {
   const cookieStore = await cookies();
   const supabase = createClient(cookieStore);
 
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   // M3: snapshot the aircraft's status_color into the session row at
   // creation time. For voice/photo we override any client-supplied value
   // with the live algorithmic count. For no_issues we keep the
@@ -93,6 +100,13 @@ export async function GET(request: Request) {
 
   const cookieStore = await cookies();
   const supabase = createClient(cookieStore);
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   let q = supabase
     .from("preflight_sessions")
