@@ -87,6 +87,12 @@ export async function runTranscription(args: RunArgs): Promise<void> {
     file_name,
   } = args;
 
+  console.log("[transcription] entry", {
+    voice_transcription_id,
+    preflight_session_id,
+    storage_key,
+  });
+
   await supabase
     .from("voice_transcriptions")
     .update({
@@ -131,6 +137,10 @@ export async function runTranscription(args: RunArgs): Promise<void> {
       .eq("id", preflight_session_id);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    console.error("[transcription] failed", {
+      voice_transcription_id,
+      error: message,
+    });
     await supabase
       .from("voice_transcriptions")
       .update({

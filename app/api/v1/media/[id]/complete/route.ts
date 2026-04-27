@@ -2,7 +2,7 @@ import { NextResponse, after } from "next/server";
 import { cookies } from "next/headers";
 import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { createClient } from "@/utils/supabase/server";
+import { createClient, createServiceRoleClient } from "@/utils/supabase/server";
 import { runTranscription, startTranscription } from "@/lib/transcription-job";
 
 async function upsertIssueForPhoto(args: {
@@ -223,9 +223,13 @@ export async function POST(
     }
     voice_transcription_id = start.voice_transcription_id;
     if (!start.alreadyExists) {
+      // Background job: cookie auth context is gone after the response is
+      // sent, so the user-scoped client can't sign storage URLs or write
+      // back the transcription row. Use the service-role client.
+      const serviceClient = createServiceRoleClient();
       after(async () => {
         await runTranscription({
-          supabase,
+          supabase: serviceClient,
           voice_transcription_id: start.voice_transcription_id,
           preflight_session_id: updated.preflight_session_id,
           storage_key: updated.storage_key,

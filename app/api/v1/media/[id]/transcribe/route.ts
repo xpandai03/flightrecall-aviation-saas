@@ -1,7 +1,7 @@
 import { NextResponse, after } from "next/server";
 import { cookies } from "next/headers";
 import { z } from "zod";
-import { createClient } from "@/utils/supabase/server";
+import { createClient, createServiceRoleClient } from "@/utils/supabase/server";
 import { runTranscription, startTranscription } from "@/lib/transcription-job";
 
 export const dynamic = "force-dynamic";
@@ -73,9 +73,13 @@ export async function POST(
     );
   }
 
+  // Background job: cookie auth context is gone after the response is
+  // sent. Use the service-role client so signed-URL mints and the row
+  // status writes both succeed.
+  const serviceClient = createServiceRoleClient();
   after(async () => {
     await runTranscription({
-      supabase,
+      supabase: serviceClient,
       voice_transcription_id: start.voice_transcription_id,
       preflight_session_id: media.preflight_session_id,
       storage_key: media.storage_key,
