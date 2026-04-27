@@ -44,7 +44,10 @@ export function Orb({
   const scale = 1 + audioLevel * preset.pulseGain
 
   return (
-    <div className="relative">
+    <div
+      className="relative shrink-0"
+      style={{ width: size, height: size }}
+    >
       <div
         aria-hidden
         className="absolute inset-0 rounded-full blur-3xl opacity-60 transition-colors duration-500"

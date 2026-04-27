@@ -35,6 +35,7 @@ export function TopNav({
 
   // Onboarding hides the picker (no aircraft yet OR no aircraft context).
   const onOnboarding = pathname.startsWith("/onboarding");
+  const showTabs = !onOnboarding && !!currentAircraftId;
 
   const homeHref = currentAircraftId
     ? `/aircraft/${currentAircraftId}/dashboard`
@@ -42,22 +43,26 @@ export function TopNav({
 
   return (
     <header className="sticky top-0 z-40 w-full border-b border-border/60 bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-3 px-4 sm:px-6">
-        <div className="flex items-center gap-3 min-w-0">
+      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-2 sm:gap-3 px-3 sm:px-6">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <Link href={homeHref} className="flex items-center gap-2 group shrink-0">
             <span className="flex size-7 items-center justify-center rounded-md bg-gradient-to-br from-sky-400 to-cyan-500 text-white shadow-sm">
               <Plane className="size-3.5 -rotate-45" />
             </span>
-            <span className="text-sm font-semibold tracking-tight">
+            <span className="hidden sm:inline text-sm font-semibold tracking-tight">
               Flight Recall
             </span>
           </Link>
-          {!onOnboarding && <AircraftPicker aircraft={aircraft} />}
+          {!onOnboarding && (
+            <div className="min-w-0 shrink">
+              <AircraftPicker aircraft={aircraft} />
+            </div>
+          )}
         </div>
 
-        <div className="flex items-center gap-1">
-          {!onOnboarding && currentAircraftId && (
-            <nav className="flex items-center gap-1 mr-1">
+        <div className="flex items-center gap-1 shrink-0">
+          {showTabs && (
+            <nav className="hidden sm:flex items-center gap-1 mr-1">
               {NAV_PAGES.map((page) => {
                 const href = `/aircraft/${currentAircraftId}/${page.slug}`;
                 const active = pathname === href;
@@ -106,6 +111,32 @@ export function TopNav({
           </DropdownMenu>
         </div>
       </div>
+
+      {showTabs && (
+        <nav
+          className="sm:hidden flex items-center gap-1 overflow-x-auto px-3 pb-2 -mt-1 [-webkit-overflow-scrolling:touch] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          aria-label="Aircraft sections"
+        >
+          {NAV_PAGES.map((page) => {
+            const href = `/aircraft/${currentAircraftId}/${page.slug}`;
+            const active = pathname === href;
+            return (
+              <Link
+                key={page.slug}
+                href={href}
+                className={cn(
+                  "shrink-0 rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
+                  active
+                    ? "bg-foreground text-background"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {page.label}
+              </Link>
+            );
+          })}
+        </nav>
+      )}
     </header>
   );
 }
