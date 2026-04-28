@@ -22,6 +22,7 @@ async function requireUser() {
 export async function GET() {
   const { supabase, user } = await requireUser();
   if (!user) {
+    console.warn("[aircraft GET] no session — returning 401");
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const { data, error } = await supabase
@@ -29,6 +30,13 @@ export async function GET() {
     .select("*")
     .order("tail_number", { ascending: true });
   if (error) {
+    console.error("[aircraft GET] supabase select failed", {
+      user_id: user.id,
+      error_code: error.code,
+      error_message: error.message,
+      error_details: error.details,
+      error_hint: error.hint,
+    });
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
   return NextResponse.json(data ?? []);
@@ -37,6 +45,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const { supabase, user } = await requireUser();
   if (!user) {
+    console.warn("[aircraft POST] no session — returning 401");
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -66,13 +75,26 @@ export async function POST(request: Request) {
     .select()
     .single();
   if (error) {
-    // Handle the unique tail_number violation with a friendly 409.
+    // Friendly 409 on unique tail_number violation.
     if (error.code === "23505") {
       return NextResponse.json(
         { error: "An aircraft with that tail number already exists." },
         { status: 409 },
       );
     }
+    // Structured log so prod failures surface a usable signal in
+    // Vercel function logs. Most informative codes here:
+    //   42501 / "row-level security" → JWT not reaching PostgREST
+    //   42703 → schema drift (column missing)
+    //   23502 → NOT NULL violation (probably user_id)
+    console.error("[aircraft POST] supabase insert failed", {
+      user_id: user.id,
+      tail_number: parsed.data.tail_number,
+      error_code: error.code,
+      error_message: error.message,
+      error_details: error.details,
+      error_hint: error.hint,
+    });
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
   return NextResponse.json(data, { status: 201 });
