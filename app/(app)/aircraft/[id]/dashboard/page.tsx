@@ -1,357 +1,342 @@
-"use client";
-
-import * as React from "react";
-import { useParams } from "next/navigation";
-import { toast } from "sonner";
-import { Loader2, Plane } from "lucide-react";
-
-import { EntryChoice } from "@/components/preflight/entry-choice";
-import { VoiceRecorder } from "@/components/preflight/voice-recorder";
+import { cookies } from "next/headers";
+import Link from "next/link";
+import { notFound } from "next/navigation";
 import {
-  PhotoCapture,
-  PhotoPreview,
-} from "@/components/preflight/photo-capture";
-import { QuickTagPicker } from "@/components/preflight/quick-tag-picker";
-import { Confirmation } from "@/components/preflight/confirmation";
-import { CarryForward } from "@/components/preflight/carry-forward";
-import { createSession, listAircraft } from "@/lib/api/sessions";
-import { uploadMedia, audioFileNameForMime } from "@/lib/api/media";
-import {
-  postIssueObservation,
-  useActiveIssues,
-  useAircraftStatus,
-} from "@/lib/api/issues";
-import { useTranscriptionPoll } from "@/hooks/use-transcription-poll";
+  Camera,
+  CheckCircle2,
+  ChevronRight,
+  Mic,
+  Plane,
+} from "lucide-react";
+import { z } from "zod";
+
+import { StatusChip } from "@/components/status-chip";
+import { Button } from "@/components/ui/button";
+import { computeStatusColor } from "@/lib/status-color";
+import { createClient } from "@/utils/supabase/server";
 import type {
-  Aircraft,
   InputType,
-  IssueAction,
+  IssueWithType,
   PreflightSession,
-  QuickTag,
   StatusColor,
 } from "@/lib/types/database";
-import type { RecorderResult } from "@/hooks/use-media-recorder";
 
-type PendingAction = Exclude<IssueAction, "logged">;
+export const dynamic = "force-dynamic";
 
-type Step =
-  | { kind: "idle" }
-  | { kind: "recording" }
-  | { kind: "capturing" }
-  | {
-      kind: "tagging";
-      file: File;
-      previewUrl: string;
-      quickTag: QuickTag | null;
-    }
-  | { kind: "uploading"; mode: InputType }
-  | {
-      kind: "confirming";
-      session: PreflightSession;
-      mode: InputType;
-      voiceTranscriptionId?: string;
-      photo?: { previewUrl: string; quickTag: QuickTag | null };
-    };
+const idSchema = z.string().uuid();
 
-function todayLabel(): string {
-  return new Date().toLocaleDateString("en-US", {
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  });
-}
+const ACTIVE_THRESHOLD_DAYS = 7;
+const RECENT_LIMIT = 5;
+const ISSUES_LIMIT = 5;
 
-export default function DashboardPage() {
-  const params = useParams<{ id: string }>();
-  const aircraftId = params.id;
+export default async function DashboardPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+  const parsed = idSchema.safeParse(id);
+  if (!parsed.success) notFound();
+  const aircraftId = parsed.data;
 
-  const [aircraft, setAircraft] = React.useState<Aircraft | null>(null);
-  const [aircraftLoaded, setAircraftLoaded] = React.useState(false);
-  const [step, setStep] = React.useState<Step>({ kind: "idle" });
+  const cookieStore = await cookies();
+  const supabase = createClient(cookieStore);
 
-  React.useEffect(() => {
-    let cancelled = false;
-    if (!aircraftId) return;
-    listAircraft()
-      .then((rows) => {
-        if (cancelled) return;
-        const match = rows.find((r) => r.id === aircraftId) ?? null;
-        setAircraft(match);
-        setAircraftLoaded(true);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        toast.error("Failed to load aircraft", {
-          description: err instanceof Error ? err.message : String(err),
-        });
-        setAircraftLoaded(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [aircraftId]);
+  const [aircraftRes, issueCountRes, activeIssuesRes, sessionTimesRes, recentSessionsRes] =
+    await Promise.all([
+      supabase
+        .from("aircraft")
+        .select("id, tail_number, aircraft_type")
+        .eq("id", aircraftId)
+        .maybeSingle(),
+      supabase
+        .from("issues")
+        .select("*", { count: "exact", head: true })
+        .eq("aircraft_id", aircraftId)
+        .eq("current_status", "active"),
+      supabase
+        .from("issues")
+        .select("*, issue_type:issue_types(*)")
+        .eq("aircraft_id", aircraftId)
+        .eq("current_status", "active")
+        .order("last_seen_at", { ascending: false })
+        .limit(ISSUES_LIMIT),
+      supabase
+        .from("preflight_sessions")
+        .select("created_at")
+        .eq("aircraft_id", aircraftId),
+      supabase
+        .from("preflight_sessions")
+        .select("id, input_type, status_color, created_at")
+        .eq("aircraft_id", aircraftId)
+        .order("created_at", { ascending: false })
+        .limit(RECENT_LIMIT),
+    ]);
 
-  const defaultAircraft = aircraft;
-  const aircraftTail = defaultAircraft?.tail_number ?? "—";
-  const {
-    issues: activeIssues,
-    refresh: refreshActiveIssues,
-    optimisticallyRemove: removeActiveIssue,
-  } = useActiveIssues(aircraftId);
-  const { status: aircraftStatus, refresh: refreshAircraftStatus } =
-    useAircraftStatus(aircraftId);
+  if (!aircraftRes.data) notFound();
+  const aircraft = aircraftRes.data;
 
-  const reset = React.useCallback(() => {
-    setStep((prev) => {
-      if (prev.kind === "tagging") URL.revokeObjectURL(prev.previewUrl);
-      if (prev.kind === "confirming" && prev.photo) {
-        URL.revokeObjectURL(prev.photo.previewUrl);
-      }
-      return { kind: "idle" };
-    });
-    refreshActiveIssues();
-    refreshAircraftStatus();
-  }, [refreshActiveIssues, refreshAircraftStatus]);
+  const activeIssueCount = issueCountRes.count ?? 0;
+  const statusColor: StatusColor = computeStatusColor(activeIssueCount);
 
-  // Carry-forward actions fire immediately. Optimistically remove the
-  // row, then POST to the server. On failure, surface a toast and
-  // refresh so the row pops back if the server didn't accept it.
-  const handleCarryForwardAction = React.useCallback(
-    async (issueId: string, action: PendingAction) => {
-      removeActiveIssue(issueId);
-      try {
-        await postIssueObservation(issueId, { action });
-        refreshAircraftStatus();
-      } catch (err) {
-        toast.error("Couldn't record action", {
-          description: err instanceof Error ? err.message : String(err),
-        });
-        refreshActiveIssues();
-      }
-    },
-    [removeActiveIssue, refreshActiveIssues, refreshAircraftStatus],
+  const activeIssues = (activeIssuesRes.data ?? []) as IssueWithType[];
+  const sessionTimes = (sessionTimesRes.data ?? []).map((s) =>
+    new Date(s.created_at).getTime(),
   );
+  const recentSessions = (recentSessionsRes.data ?? []) as Pick<
+    PreflightSession,
+    "id" | "input_type" | "status_color" | "created_at"
+  >[];
 
-  const handlePick = (choice: "voice" | "photo" | "no_issues") => {
-    if (!defaultAircraft) {
-      toast.error("No aircraft available");
-      return;
-    }
-    if (choice === "voice") setStep({ kind: "recording" });
-    else if (choice === "photo") setStep({ kind: "capturing" });
-    else void handleNoIssues();
-  };
+  const headerLabel = aircraft.aircraft_type
+    ? `${aircraft.tail_number} · ${aircraft.aircraft_type}`
+    : aircraft.tail_number;
 
-  const handleNoIssues = async () => {
-    if (!defaultAircraft) return;
-    setStep({ kind: "uploading", mode: "no_issues" });
-    try {
-      const session = await createSession({
-        aircraft_id: defaultAircraft.id,
-        input_type: "no_issues",
-        status_color: "green",
-      });
-      setStep({ kind: "confirming", session, mode: "no_issues" });
-    } catch (err) {
-      toast.error("Couldn't save session", {
-        description: err instanceof Error ? err.message : String(err),
-      });
-      setStep({ kind: "idle" });
-    }
-  };
-
-  const handleVoiceComplete = async (result: RecorderResult) => {
-    if (!defaultAircraft) return;
-    setStep({ kind: "uploading", mode: "voice" });
-    try {
-      const session = await createSession({
-        aircraft_id: defaultAircraft.id,
-        input_type: "voice",
-      });
-      const { name } = audioFileNameForMime(result.mimeType);
-      const outcome = await uploadMedia({
-        preflight_session_id: session.id,
-        blob: result.blob,
-        media_type: "audio",
-        file_name: name,
-        mime_type: result.mimeType,
-      });
-      toast.success("Saved", {
-        description: "Recording captured. Transcribing…",
-      });
-      setStep({
-        kind: "confirming",
-        session,
-        mode: "voice",
-        voiceTranscriptionId: outcome.voice_transcription_id,
-      });
-    } catch (err) {
-      toast.error("Couldn't save voice note", {
-        description: err instanceof Error ? err.message : String(err),
-      });
-      setStep({ kind: "idle" });
-    }
-  };
-
-  const handlePhotoCaptured = (file: File, previewUrl: string) => {
-    setStep({ kind: "tagging", file, previewUrl, quickTag: null });
-  };
-
-  const handlePhotoSave = async () => {
-    if (step.kind !== "tagging") return;
-    if (!defaultAircraft) return;
-    const { file, previewUrl, quickTag } = step;
-    setStep({ kind: "uploading", mode: "photo" });
-    try {
-      const session = await createSession({
-        aircraft_id: defaultAircraft.id,
-        input_type: "photo",
-      });
-      const safeName = file.name && file.name.length > 0 ? file.name : "photo.jpg";
-      await uploadMedia({
-        preflight_session_id: session.id,
-        blob: file,
-        media_type: "photo",
-        file_name: safeName,
-        mime_type: file.type || "image/jpeg",
-        quick_tag: quickTag ?? undefined,
-      });
-      toast.success("Saved", { description: "Photo logged to this session." });
-      setStep({
-        kind: "confirming",
-        session,
-        mode: "photo",
-        photo: { previewUrl, quickTag },
-      });
-    } catch (err) {
-      toast.error("Couldn't save photo", {
-        description: err instanceof Error ? err.message : String(err),
-      });
-      URL.revokeObjectURL(previewUrl);
-      setStep({ kind: "idle" });
-    }
-  };
-
-  const sessionForPoll =
-    step.kind === "confirming" && step.mode === "voice" ? step.session.id : null;
-  const poll = useTranscriptionPoll(
-    sessionForPoll,
-    sessionForPoll !== null,
-  );
+  const lastSessionAt = recentSessions[0]?.created_at ?? null;
+  const activityCopy = activityIndicatorCopy(lastSessionAt);
 
   return (
-    <div className="flex flex-col items-center gap-10 py-4 sm:py-10">
-      <div className="flex flex-col items-center text-center gap-2">
-        <StatusChip
-          color={aircraftStatus?.status_color ?? null}
-          label={`Preflight · ${todayLabel()} · ${aircraftTail}`}
+    <div className="flex flex-col gap-8">
+      {/* Section A: Status header */}
+      <header className="flex flex-col items-start gap-3">
+        <StatusChip color={statusColor} label={headerLabel} size="lg" />
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">
+            Dashboard
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1">{activityCopy}</p>
+        </div>
+      </header>
+
+      {/* Section B: Start Preflight CTA */}
+      <Button
+        asChild
+        size="lg"
+        className="h-14 rounded-2xl text-base shadow-sm self-stretch sm:self-start sm:px-10"
+      >
+        <Link href={`/aircraft/${aircraftId}/preflight`}>
+          <Plane className="size-4 -rotate-45" />
+          Start Preflight
+        </Link>
+      </Button>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Section C: Active issues */}
+        <ActiveIssuesCard
+          aircraftId={aircraftId}
+          issues={activeIssues}
+          totalCount={activeIssueCount}
+          sessionTimes={sessionTimes}
         />
-        <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight">
-          Flight Recall
-        </h1>
-        <p className="text-muted-foreground text-sm sm:text-base">
-          Voice-first preflight logging. Speak what you see, we remember.
-        </p>
+
+        {/* Section D: Recent sessions */}
+        <RecentSessionsCard
+          aircraftId={aircraftId}
+          sessions={recentSessions}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ===========================================================================
+// Section C: Active issues
+// ===========================================================================
+
+function ActiveIssuesCard({
+  aircraftId,
+  issues,
+  totalCount,
+  sessionTimes,
+}: {
+  aircraftId: string;
+  issues: IssueWithType[];
+  totalCount: number;
+  sessionTimes: number[];
+}) {
+  const overflow = totalCount - issues.length;
+  return (
+    <section className="rounded-2xl border border-border/70 bg-card p-5 shadow-sm">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          Active issues
+        </h2>
+        <span className="text-xs text-muted-foreground">
+          {totalCount} total
+        </span>
       </div>
 
-      {step.kind === "idle" && activeIssues.length > 0 && (
-        <CarryForward
-          issues={activeIssues}
-          onAction={handleCarryForwardAction}
-          disabled={false}
-          totalActiveCount={aircraftStatus?.active_issue_count}
-        />
+      {totalCount === 0 ? (
+        <div className="flex items-center gap-3 rounded-xl border border-emerald-200/70 bg-emerald-50/40 px-4 py-3">
+          <span className="flex size-8 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
+            <CheckCircle2 className="size-4" />
+          </span>
+          <div className="text-sm font-medium text-emerald-800">
+            All clear — no active issues
+          </div>
+        </div>
+      ) : (
+        <ul className="space-y-2">
+          {issues.map((issue) => {
+            const lastSeenMs = new Date(issue.last_seen_at).getTime();
+            const sessionsSince = sessionTimes.filter(
+              (t) => t > lastSeenMs,
+            ).length;
+            const flightsSince = Math.max(1, sessionsSince + 1);
+            return (
+              <li
+                key={issue.id}
+                className="flex items-center justify-between rounded-xl border border-border/60 bg-background px-3 py-2.5"
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className="size-2 rounded-full bg-amber-500 shrink-0" />
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium truncate">
+                      {issue.issue_type.name}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground">
+                      Seen {flightsSince}{" "}
+                      {flightsSince === 1 ? "flight" : "flights"} ago
+                    </div>
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
       )}
 
-      {step.kind === "idle" &&
-        (aircraftLoaded && defaultAircraft ? (
-          <EntryChoice onPick={handlePick} />
-        ) : (
-          <p className="text-sm text-muted-foreground">Loading aircraft…</p>
-        ))}
-
-      {step.kind === "recording" && (
-        <VoiceRecorder
-          onComplete={handleVoiceComplete}
-          onCancel={reset}
-        />
-      )}
-
-      {step.kind === "capturing" && (
-        <PhotoCapture
-          onCaptured={handlePhotoCaptured}
-          onCancel={reset}
-        />
-      )}
-
-      {step.kind === "tagging" && (
-        <div className="flex flex-col items-center gap-6 w-full">
-          <PhotoPreview
-            previewUrl={step.previewUrl}
-            onRetake={() => {
-              URL.revokeObjectURL(step.previewUrl);
-              setStep({ kind: "capturing" });
-            }}
-          />
-          <QuickTagPicker
-            value={step.quickTag}
-            onChange={(next) =>
-              setStep((prev) =>
-                prev.kind === "tagging"
-                  ? { ...prev, quickTag: next }
-                  : prev,
-              )
-            }
-            onSave={handlePhotoSave}
-            onCancel={reset}
-          />
+      {overflow > 0 && (
+        <div className="mt-3 text-right">
+          <Link
+            href={`/aircraft/${aircraftId}/memory?tab=issues`}
+            className="text-xs text-sky-700 hover:underline"
+          >
+            View all {totalCount} issues →
+          </Link>
         </div>
       )}
-
-      {step.kind === "uploading" && (
-        <div className="flex flex-col items-center gap-3 text-muted-foreground">
-          <Loader2 className="size-6 animate-spin text-sky-500" />
-          <div className="text-sm">Saving…</div>
-        </div>
-      )}
-
-      {step.kind === "confirming" && (
-        <Confirmation
-          inputType={step.mode}
-          aircraftTail={aircraftTail}
-          createdAtIso={step.session.created_at}
-          statusColor={step.session.status_color}
-          poll={step.mode === "voice" ? poll : undefined}
-          photo={step.photo}
-          onDone={reset}
-        />
-      )}
-    </div>
+    </section>
   );
 }
 
-function StatusChip({
-  color,
-  label,
+// ===========================================================================
+// Section D: Recent sessions
+// ===========================================================================
+
+function RecentSessionsCard({
+  aircraftId,
+  sessions,
 }: {
-  color: StatusColor | null;
-  label: string;
+  aircraftId: string;
+  sessions: Pick<
+    PreflightSession,
+    "id" | "input_type" | "status_color" | "created_at"
+  >[];
 }) {
+  return (
+    <section className="rounded-2xl border border-border/70 bg-card p-5 shadow-sm">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          Recent sessions
+        </h2>
+        {sessions.length > 0 && (
+          <Link
+            href={`/aircraft/${aircraftId}/sessions`}
+            className="text-xs text-sky-700 hover:underline"
+          >
+            View all
+          </Link>
+        )}
+      </div>
+
+      {sessions.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-border/70 bg-background px-4 py-6 text-center">
+          <div className="text-sm font-medium">Log your first preflight</div>
+          <div className="text-xs text-muted-foreground mt-1">
+            Tap Start Preflight above to begin.
+          </div>
+        </div>
+      ) : (
+        <ul className="space-y-1.5">
+          {sessions.map((s) => (
+            <li key={s.id}>
+              <Link
+                href={`/aircraft/${aircraftId}/sessions`}
+                className="group flex items-center gap-3 rounded-xl border border-border/60 bg-background px-3 py-2.5 transition-colors hover:border-sky-200 hover:bg-sky-50/30"
+              >
+                <span className="flex size-8 items-center justify-center rounded-lg bg-muted text-muted-foreground shrink-0">
+                  <InputTypeIcon type={s.input_type} />
+                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium">
+                    {inputTypeLabel(s.input_type)}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground">
+                    {formatRelative(s.created_at)}
+                  </div>
+                </div>
+                <StatusDot color={s.status_color} />
+                <ChevronRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function InputTypeIcon({ type }: { type: InputType }) {
+  if (type === "voice") return <Mic className="size-4" />;
+  if (type === "photo") return <Camera className="size-4" />;
+  return <CheckCircle2 className="size-4" />;
+}
+
+function inputTypeLabel(type: InputType): string {
+  if (type === "voice") return "Voice note";
+  if (type === "photo") return "Photo";
+  return "No issues";
+}
+
+function StatusDot({ color }: { color: StatusColor | null }) {
   const cls =
     color === "green"
-      ? "border-emerald-200/70 bg-emerald-50/70 text-emerald-700"
+      ? "bg-emerald-500"
       : color === "yellow"
-        ? "border-amber-200/70 bg-amber-50/70 text-amber-700"
+        ? "bg-amber-500"
         : color === "red"
-          ? "border-rose-200/70 bg-rose-50/70 text-rose-700"
-          : "border-sky-200/70 bg-sky-50/70 text-sky-700";
-  return (
-    <div
-      className={`inline-flex items-center gap-1.5 rounded-full border ${cls} px-3 py-1 text-xs font-medium`}
-    >
-      <Plane className="size-3 -rotate-45" />
-      {label}
-    </div>
-  );
+          ? "bg-rose-500"
+          : "bg-sky-300";
+  return <span className={`size-2 rounded-full ${cls} shrink-0`} aria-hidden />;
 }
 
+// ===========================================================================
+// Activity copy + relative time
+// ===========================================================================
+
+function activityIndicatorCopy(lastSessionIso: string | null): string {
+  if (!lastSessionIso) return "Log your first preflight to get started.";
+  const last = new Date(lastSessionIso).getTime();
+  const ageMs = Date.now() - last;
+  const ageDays = ageMs / (1000 * 60 * 60 * 24);
+  if (ageDays <= ACTIVE_THRESHOLD_DAYS) {
+    return `Last preflight ${formatRelative(lastSessionIso)} — you're covered.`;
+  }
+  return `It's been ${formatRelative(lastSessionIso)} — time for a check?`;
+}
+
+function formatRelative(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  const min = Math.round(ms / 60_000);
+  if (min < 1) return "just now";
+  if (min < 60) return `${min} min ago`;
+  const hr = Math.round(min / 60);
+  if (hr < 24) return `${hr} ${hr === 1 ? "hour" : "hours"} ago`;
+  const d = Math.round(hr / 24);
+  if (d < 30) return `${d} ${d === 1 ? "day" : "days"} ago`;
+  const mo = Math.round(d / 30);
+  if (mo < 12) return `${mo} ${mo === 1 ? "month" : "months"} ago`;
+  const yr = Math.round(mo / 12);
+  return `${yr} ${yr === 1 ? "year" : "years"} ago`;
+}

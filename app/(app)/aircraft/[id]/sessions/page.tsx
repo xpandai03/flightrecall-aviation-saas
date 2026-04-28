@@ -11,7 +11,6 @@ import {
   Plane,
 } from "lucide-react"
 
-import { Badge } from "@/components/ui/badge"
 import {
   Sheet,
   SheetContent,
@@ -19,11 +18,13 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
+import { StatusChip } from "@/components/status-chip"
 import { getSession, useSessions } from "@/lib/api/sessions"
 import type { Session } from "@/lib/mock-helpers"
 import type {
   MediaAssetWithSignedUrl,
   PreflightSessionDetail,
+  StatusColor,
 } from "@/lib/types/database"
 
 export default function SessionsPage() {
@@ -94,7 +95,10 @@ function SessionCard({ session, onOpen }: { session: Session; onOpen: () => void
       </div>
 
       <div className="mt-4 flex items-center gap-3 text-xs text-muted-foreground">
-        <StatusPill color={session.statusColor} fallbackClean={clean} fallbackIssueCount={issueCount} />
+        <StatusChip
+          color={session.statusColor}
+          label={statusLabel(session.statusColor, clean, issueCount)}
+        />
         {session.photos.length > 0 && (
           <span className="inline-flex items-center gap-1">
             <Camera className="size-3" />
@@ -285,50 +289,18 @@ function actionCopy(action: string): string {
   }
 }
 
-function StatusPill({
-  color,
-  fallbackClean,
-  fallbackIssueCount,
-}: {
-  color: "green" | "yellow" | "red" | null
-  fallbackClean: boolean
-  fallbackIssueCount: number
-}) {
-  if (color === "green") {
-    return (
-      <Badge variant="secondary" className="bg-emerald-50 text-emerald-700 hover:bg-emerald-50">
-        All clear
-      </Badge>
-    )
-  }
-  if (color === "yellow") {
-    return (
-      <Badge variant="secondary" className="bg-amber-50 text-amber-700 hover:bg-amber-50">
-        Watch
-      </Badge>
-    )
-  }
-  if (color === "red") {
-    return (
-      <Badge variant="secondary" className="bg-rose-50 text-rose-700 hover:bg-rose-50">
-        Action needed
-      </Badge>
-    )
-  }
-  // Pre-M3 sessions or status_color compute failure: fall back to the
-  // legacy notes-derived count so old rows still get a sensible chip.
-  if (fallbackClean) {
-    return (
-      <Badge variant="secondary" className="bg-emerald-50 text-emerald-700 hover:bg-emerald-50">
-        No issues
-      </Badge>
-    )
-  }
-  return (
-    <Badge variant="secondary" className="bg-amber-50 text-amber-700 hover:bg-amber-50">
-      {fallbackIssueCount} {fallbackIssueCount === 1 ? "finding" : "findings"}
-    </Badge>
-  )
+// Pre-M3 sessions or status_color compute failure: fall back to the
+// legacy notes-derived count so old rows still get a sensible chip.
+function statusLabel(
+  color: StatusColor | null,
+  fallbackClean: boolean,
+  fallbackIssueCount: number,
+): string {
+  if (color === "green") return "All clear"
+  if (color === "yellow") return "Watch"
+  if (color === "red") return "Action needed"
+  if (fallbackClean) return "No issues"
+  return `${fallbackIssueCount} ${fallbackIssueCount === 1 ? "finding" : "findings"}`
 }
 
 function PhotoTile({ asset }: { asset: MediaAssetWithSignedUrl }) {
