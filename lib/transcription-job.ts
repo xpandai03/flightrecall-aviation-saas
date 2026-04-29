@@ -67,6 +67,7 @@ type RunArgs = {
   supabase: SupabaseClient;
   voice_transcription_id: string;
   preflight_session_id: string;
+  media_asset_id: string;
   storage_key: string;
   file_name: string | null;
 };
@@ -83,6 +84,7 @@ export async function runTranscription(args: RunArgs): Promise<void> {
     supabase,
     voice_transcription_id,
     preflight_session_id,
+    media_asset_id,
     storage_key,
     file_name,
   } = args;
@@ -135,6 +137,32 @@ export async function runTranscription(args: RunArgs): Promise<void> {
       .from("preflight_sessions")
       .update({ transcript_text: result.text })
       .eq("id", preflight_session_id);
+
+    // If this audio was tagged at upload time, the issue exists with a null
+    // description. Backfill it from the transcript (overwrite unconditionally
+    // so the most recent voice note wins). Best-effort.
+    const { data: media, error: mediaErr } = await supabase
+      .from("media_assets")
+      .select("issue_id")
+      .eq("id", media_asset_id)
+      .maybeSingle();
+    if (mediaErr) {
+      console.error("[transcription] issue lookup failed", {
+        media_asset_id,
+        error: mediaErr.message,
+      });
+    } else if (media?.issue_id) {
+      const { error: descErr } = await supabase
+        .from("issues")
+        .update({ description: result.text.slice(0, 500) })
+        .eq("id", media.issue_id);
+      if (descErr) {
+        console.error("[transcription] description backfill failed", {
+          issue_id: media.issue_id,
+          error: descErr.message,
+        });
+      }
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[transcription] failed", {

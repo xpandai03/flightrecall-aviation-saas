@@ -17,17 +17,20 @@ export function QuickTagPicker({
   onSave,
   onCancel,
   saving,
+  mode = "photo",
 }: {
   value: QuickTag | null;
   onChange: (next: QuickTag | null) => void;
   onSave: () => void;
   onCancel: () => void;
   saving?: boolean;
+  mode?: "photo" | "voice";
 }) {
+  const heading = mode === "voice" ? "Tag this voice note" : "Tag this photo";
   return (
     <div className="flex flex-col items-center gap-4 w-full max-w-md">
       <div className="text-center">
-        <h3 className="text-base font-semibold tracking-tight">Tag this photo</h3>
+        <h3 className="text-base font-semibold tracking-tight">{heading}</h3>
         <p className="text-xs text-muted-foreground mt-0.5">Optional. Tap once to select.</p>
       </div>
 

@@ -5,7 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient, createServiceRoleClient } from "@/utils/supabase/server";
 import { runTranscription, startTranscription } from "@/lib/transcription-job";
 
-async function upsertIssueForPhoto(args: {
+async function upsertIssueForMedia(args: {
   supabase: SupabaseClient;
   media_asset_id: string;
   preflight_session_id: string;
@@ -149,14 +149,21 @@ export async function POST(
     return NextResponse.json({ error: "media not found" }, { status: 404 });
   }
 
-  if (
-    parsed.data.quick_tag !== undefined &&
-    existing.media_type !== "photo"
-  ) {
-    return NextResponse.json(
-      { error: "quick_tag is only valid for photo media" },
-      { status: 400 },
-    );
+  if (parsed.data.quick_tag !== undefined) {
+    const { data: parentSession, error: parentErr } = await supabase
+      .from("preflight_sessions")
+      .select("input_type")
+      .eq("id", existing.preflight_session_id)
+      .maybeSingle();
+    if (parentErr) {
+      return NextResponse.json({ error: parentErr.message }, { status: 500 });
+    }
+    if (parentSession?.input_type === "no_issues") {
+      return NextResponse.json(
+        { error: "quick_tag is not valid on no_issues sessions" },
+        { status: 400 },
+      );
+    }
   }
 
   const update: Record<string, unknown> = { upload_status: "uploaded" };
@@ -188,11 +195,11 @@ export async function POST(
   let issue_error: string | undefined;
   const effectiveQuickTag = parsed.data.quick_tag ?? updated.quick_tag;
   if (
-    updated.media_type === "photo" &&
+    (updated.media_type === "photo" || updated.media_type === "audio") &&
     effectiveQuickTag &&
     !updated.issue_id
   ) {
-    const issueResult = await upsertIssueForPhoto({
+    const issueResult = await upsertIssueForMedia({
       supabase,
       media_asset_id: updated.id,
       preflight_session_id: updated.preflight_session_id,
@@ -232,6 +239,7 @@ export async function POST(
           supabase: serviceClient,
           voice_transcription_id: start.voice_transcription_id,
           preflight_session_id: updated.preflight_session_id,
+          media_asset_id: updated.id,
           storage_key: updated.storage_key,
           file_name: updated.file_name,
         });

@@ -51,6 +51,12 @@ type Step =
       previewUrl: string;
       quickTag: QuickTag | null;
     }
+  | {
+      kind: "voice_tagging";
+      blob: Blob;
+      mimeType: string;
+      quickTag: QuickTag | null;
+    }
   | { kind: "uploading"; mode: InputType }
   | {
       kind: "confirming";
@@ -159,21 +165,33 @@ export default function PreflightPage() {
     else setStep({ kind: "no_issues_capturing" });
   };
 
-  const handleVoiceComplete = async (result: RecorderResult) => {
+  const handleVoiceCaptured = (result: RecorderResult) => {
+    setStep({
+      kind: "voice_tagging",
+      blob: result.blob,
+      mimeType: result.mimeType,
+      quickTag: null,
+    });
+  };
+
+  const handleVoiceSave = async () => {
+    if (step.kind !== "voice_tagging") return;
     if (!defaultAircraft) return;
+    const { blob, mimeType, quickTag } = step;
     setStep({ kind: "uploading", mode: "voice" });
     try {
       const session = await createSession({
         aircraft_id: defaultAircraft.id,
         input_type: "voice",
       });
-      const { name } = audioFileNameForMime(result.mimeType);
+      const { name } = audioFileNameForMime(mimeType);
       const outcome = await uploadMedia({
         preflight_session_id: session.id,
-        blob: result.blob,
+        blob,
         media_type: "audio",
         file_name: name,
-        mime_type: result.mimeType,
+        mime_type: mimeType,
+        quick_tag: quickTag ?? undefined,
       });
       toast.success("Saved", {
         description: "Recording captured. Transcribing…",
@@ -310,7 +328,21 @@ export default function PreflightPage() {
         ))}
 
       {step.kind === "recording" && (
-        <VoiceRecorder onComplete={handleVoiceComplete} onCancel={reset} />
+        <VoiceRecorder onComplete={handleVoiceCaptured} onCancel={reset} />
+      )}
+
+      {step.kind === "voice_tagging" && (
+        <QuickTagPicker
+          mode="voice"
+          value={step.quickTag}
+          onChange={(next) =>
+            setStep((prev) =>
+              prev.kind === "voice_tagging" ? { ...prev, quickTag: next } : prev,
+            )
+          }
+          onSave={handleVoiceSave}
+          onCancel={reset}
+        />
       )}
 
       {step.kind === "capturing" && (
