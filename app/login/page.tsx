@@ -1,17 +1,19 @@
 import { Suspense } from "react";
-import { Plane } from "lucide-react";
+import Image from "next/image";
 import { LoginForm } from "@/components/auth/login-form";
 
 export default function LoginPage() {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-b from-background via-background to-sky-50/40 px-6">
-      <div className="mb-8 flex items-center gap-2">
-        <span className="flex size-8 items-center justify-center rounded-lg bg-gradient-to-br from-sky-400 to-cyan-500 text-white shadow-sm">
-          <Plane className="size-4 -rotate-45" />
-        </span>
-        <span className="text-base font-semibold tracking-tight">
-          Flight Recall
-        </span>
+      <div className="mb-8 flex items-center justify-center">
+        <Image
+          src="/flight-recall-logo.png"
+          alt="Flight Recall"
+          width={240}
+          height={192}
+          priority
+          className="h-32 sm:h-40 w-auto"
+        />
       </div>
       <Suspense>
         <LoginForm />
