@@ -4,6 +4,7 @@ import * as React from "react";
 import type {
   Aircraft,
   InputType,
+  IssueWithType,
   PreflightSession,
   PreflightSessionDetail,
   PreflightSessionWithMedia,
@@ -113,6 +114,26 @@ export function updateTranscript(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ transcript_text }),
     },
+  );
+}
+
+/** One auto-logged issue tied to this session via the canonical
+ *  issue_observations join. observation_created_at preserves the
+ *  order the issues surfaced during extraction. */
+export type SessionIssue = {
+  observation_id: string;
+  observation_created_at: string;
+  issue: IssueWithType;
+};
+
+/**
+ * Returns the issues auto-logged on this preflight session, in the
+ * order they were extracted. Includes issues from every voice note in
+ * a multi-input session (so a second voice's issues are visible too).
+ */
+export function getSessionIssues(sessionId: string): Promise<SessionIssue[]> {
+  return jsonFetch<SessionIssue[]>(
+    `/api/v1/preflight-sessions/${sessionId}/issues`,
   );
 }
 
