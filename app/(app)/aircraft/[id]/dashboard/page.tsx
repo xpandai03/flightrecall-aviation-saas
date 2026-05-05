@@ -1,33 +1,43 @@
 import { cookies } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import {
-  Camera,
-  CheckCircle2,
-  ChevronRight,
-  Mic,
-  Plane,
-} from "lucide-react";
 import { z } from "zod";
 
-import { StatusChip } from "@/components/status-chip";
-import { Button } from "@/components/ui/button";
-import { computeStatusColor } from "@/lib/status-color";
+import {
+  IssueCard,
+  SessionRowItem,
+  StatusCard,
+} from "@/components/dashboard";
+import {
+  deriveIssueSeverity,
+  formatIssueHistory,
+} from "@/lib/issue-derivation";
+import { summarizeSession } from "@/lib/api/adapter";
 import { createClient } from "@/utils/supabase/server";
 import type {
-  InputType,
-  IssueWithType,
+  ActiveIssue,
+  IssueObservationDetail,
+  MediaAsset,
   PreflightSession,
   StatusColor,
+  VoiceTranscription,
 } from "@/lib/types/database";
 
 export const dynamic = "force-dynamic";
 
 const idSchema = z.string().uuid();
 
-const ACTIVE_THRESHOLD_DAYS = 7;
 const RECENT_LIMIT = 5;
 const ISSUES_LIMIT = 5;
+
+type RecentSessionRow = Pick<
+  PreflightSession,
+  "id" | "input_type" | "status_color" | "created_at" | "transcript_text" | "notes_text"
+> & {
+  media_assets: Pick<MediaAsset, "id" | "media_type" | "quick_tag">[];
+  voice_transcriptions: Pick<VoiceTranscription, "id" | "transcript_text">[];
+  issue_observations: IssueObservationDetail[];
+};
 
 export default async function DashboardPage({
   params,
@@ -64,10 +74,16 @@ export default async function DashboardPage({
       supabase
         .from("preflight_sessions")
         .select("created_at")
-        .eq("aircraft_id", aircraftId),
+        .eq("aircraft_id", aircraftId)
+        .order("created_at", { ascending: true }),
       supabase
         .from("preflight_sessions")
-        .select("id, input_type, status_color, created_at")
+        .select(
+          "id, input_type, status_color, created_at, transcript_text, notes_text, " +
+            "media_assets(id, media_type, quick_tag), " +
+            "voice_transcriptions(id, transcript_text), " +
+            "issue_observations(*, issue:issues(*, issue_type:issue_types(*)))",
+        )
         .eq("aircraft_id", aircraftId)
         .order("created_at", { ascending: false })
         .limit(RECENT_LIMIT),
@@ -77,253 +93,187 @@ export default async function DashboardPage({
   const aircraft = aircraftRes.data;
 
   const activeIssueCount = issueCountRes.count ?? 0;
-  const statusColor: StatusColor = computeStatusColor(activeIssueCount);
 
-  const activeIssues = (activeIssuesRes.data ?? []) as IssueWithType[];
   const sessionTimes = (sessionTimesRes.data ?? []).map((s) =>
     new Date(s.created_at).getTime(),
   );
-  const recentSessions = (recentSessionsRes.data ?? []) as Pick<
-    PreflightSession,
-    "id" | "input_type" | "status_color" | "created_at"
-  >[];
 
-  const headerLabel = aircraft.aircraft_type
-    ? `${aircraft.tail_number} · ${aircraft.aircraft_type}`
-    : aircraft.tail_number;
+  const activeIssues: ActiveIssue[] = (activeIssuesRes.data ?? []).map((issue) => {
+    const lastSeenMs = new Date(issue.last_seen_at).getTime();
+    const sessionsSince = sessionTimes.filter((t) => t > lastSeenMs).length;
+    const flights_since = Math.max(1, sessionsSince + 1);
+    return { ...issue, flights_since } as ActiveIssue;
+  });
+
+  const recentSessions =
+    (recentSessionsRes.data ?? []) as unknown as RecentSessionRow[];
 
   const lastSessionAt = recentSessions[0]?.created_at ?? null;
-  const activityCopy = activityIndicatorCopy(lastSessionAt);
+  const totalSessionCount = sessionTimes.length;
+  const mostRecentActiveFlights = activeIssues[0]?.flights_since ?? null;
+
+  const mode: "has_issues" | "all_clear" | "first_session" =
+    totalSessionCount === 0
+      ? "first_session"
+      : activeIssueCount === 0
+        ? "all_clear"
+        : "has_issues";
+
+  const subline =
+    mode === "has_issues" && mostRecentActiveFlights !== null
+      ? mostRecentActiveFlights <= 1
+        ? "Last seen on your most recent flight"
+        : `Last seen ${mostRecentActiveFlights} flights ago`
+      : mode === "all_clear" && lastSessionAt
+        ? `Last preflight ${formatRelative(lastSessionAt)}`
+        : undefined;
+
+  const overflow = activeIssueCount - activeIssues.length;
 
   return (
-    <div className="flex flex-col gap-8">
-      {/* Section A: Status header */}
-      <header className="flex flex-col items-start gap-3">
-        <StatusChip color={statusColor} label={headerLabel} size="lg" />
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight">
-            Dashboard
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">{activityCopy}</p>
-        </div>
-      </header>
+    <div className="flex flex-col gap-6 sm:gap-8">
+      <StatusCard
+        tailNumber={aircraft.tail_number}
+        aircraftModel={aircraft.aircraft_type}
+        activeIssueCount={mode === "first_session" ? null : activeIssueCount}
+        subline={subline}
+        mode={mode}
+        ctaHref={`/aircraft/${aircraftId}/preflight`}
+      />
 
-      {/* Section B: Start Preflight CTA */}
-      <Button
-        asChild
-        size="lg"
-        className="h-14 rounded-2xl text-base shadow-sm self-stretch sm:self-start sm:px-10"
-      >
-        <Link href={`/aircraft/${aircraftId}/preflight`}>
-          <Plane className="size-4 -rotate-45" />
-          Start Preflight
-        </Link>
-      </Button>
+      <section aria-labelledby="active-issues-heading">
+        <h2
+          id="active-issues-heading"
+          className="text-text-secondary text-xs font-semibold uppercase tracking-wider mb-3"
+        >
+          Active Issues
+        </h2>
+        {activeIssueCount === 0 ? (
+          <ActiveIssuesEmpty />
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {activeIssues.map((issue) => (
+              <li key={issue.id}>
+                <IssueCard
+                  title={issue.issue_type?.name ?? "Unknown issue"}
+                  description={issue.description}
+                  severity={deriveIssueSeverity(issue)}
+                  history={formatIssueHistory({
+                    flights_since: issue.flights_since,
+                  })}
+                />
+              </li>
+            ))}
+          </ul>
+        )}
+        {overflow > 0 && (
+          <div className="mt-3 text-right">
+            <Link
+              href={`/aircraft/${aircraftId}/memory?tab=issues`}
+              className="text-accent-mint text-xs hover:underline"
+            >
+              View all {activeIssueCount} issues →
+            </Link>
+          </div>
+        )}
+      </section>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Section C: Active issues */}
-        <ActiveIssuesCard
-          aircraftId={aircraftId}
-          issues={activeIssues}
-          totalCount={activeIssueCount}
-          sessionTimes={sessionTimes}
-        />
-
-        {/* Section D: Recent sessions */}
-        <RecentSessionsCard
-          aircraftId={aircraftId}
-          sessions={recentSessions}
-        />
-      </div>
+      <section aria-labelledby="recent-sessions-heading">
+        <h2
+          id="recent-sessions-heading"
+          className="text-text-secondary text-xs font-semibold uppercase tracking-wider mb-3"
+        >
+          Recent Sessions
+        </h2>
+        {recentSessions.length === 0 ? (
+          <RecentSessionsEmpty />
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {recentSessions.map((s) => (
+              <li key={s.id}>
+                <SessionRowItem
+                  summary={summarizeSession(s)}
+                  mediaType={mediaTypeFromSession(s)}
+                  timeAgo={formatRelative(s.created_at)}
+                  status={statusFromColor(s.status_color)}
+                  href={`/aircraft/${aircraftId}/sessions`}
+                />
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
   );
 }
 
 // ===========================================================================
-// Section C: Active issues
+// Empty states
 // ===========================================================================
 
-function ActiveIssuesCard({
-  aircraftId,
-  issues,
-  totalCount,
-  sessionTimes,
-}: {
-  aircraftId: string;
-  issues: IssueWithType[];
-  totalCount: number;
-  sessionTimes: number[];
-}) {
-  const overflow = totalCount - issues.length;
+function ActiveIssuesEmpty() {
   return (
-    <section className="rounded-2xl border border-border/70 bg-card p-5 shadow-sm">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Active issues
-        </h2>
-        <span className="text-xs text-muted-foreground">
-          {totalCount} total
-        </span>
-      </div>
+    <div className="flex items-center gap-3 rounded-2xl bg-bg-card-glass border border-border-subtle p-5 shadow-card-glow">
+      <span className="flex size-8 items-center justify-center rounded-full bg-status-clear/15 text-status-clear">
+        <CheckIcon />
+      </span>
+      <div className="text-sm text-text-secondary">No active issues</div>
+    </div>
+  );
+}
 
-      {totalCount === 0 ? (
-        <div className="flex items-center gap-3 rounded-xl border border-emerald-200/70 bg-emerald-50/40 px-4 py-3">
-          <span className="flex size-8 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
-            <CheckCircle2 className="size-4" />
-          </span>
-          <div className="text-sm font-medium text-emerald-800">
-            All clear — no active issues
-          </div>
-        </div>
-      ) : (
-        <ul className="space-y-2">
-          {issues.map((issue) => {
-            const lastSeenMs = new Date(issue.last_seen_at).getTime();
-            const sessionsSince = sessionTimes.filter(
-              (t) => t > lastSeenMs,
-            ).length;
-            const flightsSince = Math.max(1, sessionsSince + 1);
-            return (
-              <li
-                key={issue.id}
-                className="flex items-center justify-between rounded-xl border border-border/60 bg-background px-3 py-2.5"
-              >
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <span className="size-2 rounded-full bg-amber-500 shrink-0" />
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium truncate">
-                      {issue.issue_type.name}
-                    </div>
-                    <div className="text-[11px] text-muted-foreground">
-                      Seen {flightsSince}{" "}
-                      {flightsSince === 1 ? "flight" : "flights"} ago
-                    </div>
-                  </div>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+function RecentSessionsEmpty() {
+  return (
+    <div className="rounded-2xl bg-bg-card-glass border border-border-subtle p-5 shadow-card-glow text-center">
+      <p className="text-sm text-text-secondary">No flights logged yet.</p>
+      <p className="text-xs text-text-muted mt-1">
+        Tap Start Preflight above to begin building memory.
+      </p>
+    </div>
+  );
+}
 
-      {overflow > 0 && (
-        <div className="mt-3 text-right">
-          <Link
-            href={`/aircraft/${aircraftId}/memory?tab=issues`}
-            className="text-xs text-sky-700 hover:underline"
-          >
-            View all {totalCount} issues →
-          </Link>
-        </div>
-      )}
-    </section>
+// Tiny inline check (avoids dragging in lucide just for the empty state).
+function CheckIcon() {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
   );
 }
 
 // ===========================================================================
-// Section D: Recent sessions
+// Page-local helpers
 // ===========================================================================
 
-function RecentSessionsCard({
-  aircraftId,
-  sessions,
-}: {
-  aircraftId: string;
-  sessions: Pick<
-    PreflightSession,
-    "id" | "input_type" | "status_color" | "created_at"
-  >[];
-}) {
-  return (
-    <section className="rounded-2xl border border-border/70 bg-card p-5 shadow-sm">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-          Recent sessions
-        </h2>
-        {sessions.length > 0 && (
-          <Link
-            href={`/aircraft/${aircraftId}/sessions`}
-            className="text-xs text-sky-700 hover:underline"
-          >
-            View all
-          </Link>
-        )}
-      </div>
-
-      {sessions.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-border/70 bg-background px-4 py-6 text-center">
-          <div className="text-sm font-medium">Log your first preflight</div>
-          <div className="text-xs text-muted-foreground mt-1">
-            Tap Start Preflight above to begin.
-          </div>
-        </div>
-      ) : (
-        <ul className="space-y-1.5">
-          {sessions.map((s) => (
-            <li key={s.id}>
-              <Link
-                href={`/aircraft/${aircraftId}/sessions`}
-                className="group flex items-center gap-3 rounded-xl border border-border/60 bg-background px-3 py-2.5 transition-colors hover:border-sky-200 hover:bg-sky-50/30"
-              >
-                <span className="flex size-8 items-center justify-center rounded-lg bg-muted text-muted-foreground shrink-0">
-                  <InputTypeIcon type={s.input_type} />
-                </span>
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium">
-                    {inputTypeLabel(s.input_type)}
-                  </div>
-                  <div className="text-[11px] text-muted-foreground">
-                    {formatRelative(s.created_at)}
-                  </div>
-                </div>
-                <StatusDot color={s.status_color} />
-                <ChevronRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
-  );
+function mediaTypeFromSession(
+  s: Pick<PreflightSession, "input_type"> & {
+    media_assets?: Pick<MediaAsset, "media_type">[];
+  },
+): "voice" | "photo" | "mixed" | "none" {
+  // Today input_type is single-valued. 'mixed' is reserved for future use
+  // when a session can carry both photo and audio.
+  if (s.input_type === "voice") return "voice";
+  if (s.input_type === "photo") return "photo";
+  return "none";
 }
 
-function InputTypeIcon({ type }: { type: InputType }) {
-  if (type === "voice") return <Mic className="size-4" />;
-  if (type === "photo") return <Camera className="size-4" />;
-  return <CheckCircle2 className="size-4" />;
-}
-
-function inputTypeLabel(type: InputType): string {
-  if (type === "voice") return "Voice note";
-  if (type === "photo") return "Photo";
-  return "No issues";
-}
-
-function StatusDot({ color }: { color: StatusColor | null }) {
-  const cls =
-    color === "green"
-      ? "bg-emerald-500"
-      : color === "yellow"
-        ? "bg-amber-500"
-        : color === "red"
-          ? "bg-rose-500"
-          : "bg-sky-300";
-  return <span className={`size-2 rounded-full ${cls} shrink-0`} aria-hidden />;
-}
-
-// ===========================================================================
-// Activity copy + relative time
-// ===========================================================================
-
-function activityIndicatorCopy(lastSessionIso: string | null): string {
-  if (!lastSessionIso) return "Log your first preflight to get started.";
-  const last = new Date(lastSessionIso).getTime();
-  const ageMs = Date.now() - last;
-  const ageDays = ageMs / (1000 * 60 * 60 * 24);
-  if (ageDays <= ACTIVE_THRESHOLD_DAYS) {
-    return `Last preflight ${formatRelative(lastSessionIso)} — you're covered.`;
-  }
-  return `It's been ${formatRelative(lastSessionIso)} — time for a check?`;
+function statusFromColor(
+  color: StatusColor | null,
+): "critical" | "warning" | "all_clear" {
+  if (color === "red") return "critical";
+  if (color === "yellow") return "warning";
+  return "all_clear";
 }
 
 function formatRelative(iso: string): string {
@@ -340,3 +290,4 @@ function formatRelative(iso: string): string {
   const yr = Math.round(mo / 12);
   return `${yr} ${yr === 1 ? "year" : "years"} ago`;
 }
+
