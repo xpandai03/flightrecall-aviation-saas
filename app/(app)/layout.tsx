@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { BottomNav } from "@/components/bottom-nav";
 import { TopNav } from "@/components/top-nav";
 import { createClient } from "@/utils/supabase/server";
 import type { Aircraft } from "@/lib/types/database";
@@ -32,9 +33,10 @@ export default async function AppLayout({
         aircraft={aircraft}
         userEmail={user.email ?? null}
       />
-      <main className="mx-auto max-w-6xl px-4 sm:px-6 py-8 sm:py-12">
+      <main className="mx-auto max-w-6xl px-4 sm:px-6 py-8 sm:py-12 pb-28 sm:pb-12">
         {children}
       </main>
+      <BottomNav />
     </div>
   );
 }
