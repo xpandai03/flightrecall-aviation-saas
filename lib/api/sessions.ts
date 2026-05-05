@@ -69,6 +69,24 @@ export function createSession(body: CreateSessionInput): Promise<PreflightSessio
   });
 }
 
+export function finalizeSession(
+  id: string,
+): Promise<{ session: PreflightSession }> {
+  return jsonFetch<{ session: PreflightSession }>(
+    `/api/v1/preflight-sessions/${id}/finalize`,
+    { method: "POST" },
+  );
+}
+
+export function getInProgressSession(
+  aircraftId: string,
+): Promise<{ session: PreflightSessionWithMedia | null }> {
+  const params = new URLSearchParams({ aircraftId });
+  return jsonFetch<{ session: PreflightSessionWithMedia | null }>(
+    `/api/v1/preflight-sessions/in-progress?${params.toString()}`,
+  );
+}
+
 export function requestUploadUrl(body: UploadUrlInput): Promise<UploadUrlResponse> {
   return jsonFetch<UploadUrlResponse>("/api/v1/media/upload-url", {
     method: "POST",
