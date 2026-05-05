@@ -1,6 +1,10 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { transcribeAudio } from "@/lib/whisper";
+import {
+  extractIssues,
+  type ExtractedIssue,
+} from "@/lib/issue-extraction";
 
 const BUCKET = "flight-recall-media";
 
@@ -141,6 +145,25 @@ export async function runTranscription(args: RunArgs): Promise<void> {
     // prefers voice_transcriptions[0].transcript_text and falls back to
     // the session column for legacy single-input rows.
 
+    // M2 Phase 2: deterministic keyword extraction. Best-effort —
+    // extraction failures are logged but never flip the transcription
+    // to 'failed'. Transcription is the higher-priority path; extracted
+    // issues are an additive convenience.
+    try {
+      const extracted = extractIssues(result.text);
+      if (extracted.length > 0) {
+        await persistExtractedIssues(supabase, {
+          preflight_session_id,
+          extracted,
+        });
+      }
+    } catch (err) {
+      console.error("[transcription] extraction failed", {
+        voice_transcription_id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
     // If this audio was tagged at upload time, the issue exists with a null
     // description. Backfill it from the transcript (overwrite unconditionally
     // so the most recent voice note wins). Best-effort.
@@ -180,5 +203,161 @@ export async function runTranscription(args: RunArgs): Promise<void> {
         completed_at: new Date().toISOString(),
       })
       .eq("id", voice_transcription_id);
+  }
+}
+
+const RAW_TRANSCRIPT_MAX_CHARS = 4_000;
+
+/**
+ * Persist a batch of ExtractedIssue rows produced by lib/issue-extraction
+ * for a given preflight session. Idempotent against re-runs:
+ *   - issues row keyed by (aircraft_id, issue_type_id, location IS [NOT] NULL)
+ *   - observations skipped if (issue_id, session_id, action='logged')
+ *     already exists.
+ *
+ * Errors per-issue are logged and the loop continues — one bad slug
+ * lookup shouldn't drop the rest of the extracted issues.
+ */
+async function persistExtractedIssues(
+  supabase: SupabaseClient,
+  args: {
+    preflight_session_id: string;
+    extracted: ExtractedIssue[];
+  },
+): Promise<void> {
+  const { preflight_session_id, extracted } = args;
+
+  const { data: session, error: sesErr } = await supabase
+    .from("preflight_sessions")
+    .select("id, aircraft_id")
+    .eq("id", preflight_session_id)
+    .maybeSingle();
+  if (sesErr || !session) {
+    console.error("[extraction] session lookup failed", {
+      preflight_session_id,
+      error: sesErr?.message,
+    });
+    return;
+  }
+
+  for (const ex of extracted) {
+    try {
+      await persistOne(supabase, {
+        aircraft_id: session.aircraft_id,
+        preflight_session_id,
+        extracted: ex,
+      });
+    } catch (err) {
+      console.error("[extraction] issue persist failed", {
+        type_slug: ex.type_slug,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+}
+
+async function persistOne(
+  supabase: SupabaseClient,
+  args: {
+    aircraft_id: string;
+    preflight_session_id: string;
+    extracted: ExtractedIssue;
+  },
+): Promise<void> {
+  const { aircraft_id, preflight_session_id, extracted } = args;
+
+  // Resolve issue_type by slug. Defensive: spec slugs should all exist
+  // post-migration, but skip silently if not.
+  const { data: type, error: typeErr } = await supabase
+    .from("issue_types")
+    .select("id")
+    .eq("slug", extracted.type_slug)
+    .maybeSingle();
+  if (typeErr) throw new Error(`issue_type lookup: ${typeErr.message}`);
+  if (!type) {
+    console.error("[extraction] unknown issue_type slug", {
+      type_slug: extracted.type_slug,
+    });
+    return;
+  }
+
+  // Lookup existing issue row by (aircraft, type, location).
+  // Postgres unique constraint matches on (aircraft_id, issue_type_id,
+  // location). Since NULLs are distinct in unique constraints, we have
+  // to manually distinguish ".eq" vs ".is null" — same pattern as the
+  // legacy upsertIssueForMedia patch.
+  let lookupQuery = supabase
+    .from("issues")
+    .select("id, current_status")
+    .eq("aircraft_id", aircraft_id)
+    .eq("issue_type_id", type.id);
+  lookupQuery =
+    extracted.location === null
+      ? lookupQuery.is("location", null)
+      : lookupQuery.eq("location", extracted.location);
+
+  const { data: existing, error: lookupErr } = await lookupQuery.maybeSingle();
+  if (lookupErr) throw new Error(`issue lookup: ${lookupErr.message}`);
+
+  let issue_id: string;
+  if (existing) {
+    const { data: updated, error: uErr } = await supabase
+      .from("issues")
+      .update({
+        last_seen_at: new Date().toISOString(),
+        current_status: "active",
+        resolved_at: null,
+      })
+      .eq("id", existing.id)
+      .select("id")
+      .single();
+    if (uErr || !updated) {
+      throw new Error(`issue update: ${uErr?.message ?? "no row returned"}`);
+    }
+    issue_id = updated.id;
+  } else {
+    const nowIso = new Date().toISOString();
+    const { data: created, error: cErr } = await supabase
+      .from("issues")
+      .insert({
+        aircraft_id,
+        issue_type_id: type.id,
+        location: extracted.location,
+        first_seen_at: nowIso,
+        last_seen_at: nowIso,
+        current_status: "active",
+      })
+      .select("id")
+      .single();
+    if (cErr || !created) {
+      throw new Error(`issue insert: ${cErr?.message ?? "no row returned"}`);
+    }
+    issue_id = created.id;
+  }
+
+  // Observation idempotency: skip if a 'logged' obs already exists for
+  // this (issue, session) pair. Re-running extraction on the same
+  // transcript becomes a no-op for both tables.
+  const { data: existingObs, error: obsLookupErr } = await supabase
+    .from("issue_observations")
+    .select("id")
+    .eq("issue_id", issue_id)
+    .eq("preflight_session_id", preflight_session_id)
+    .eq("action", "logged")
+    .maybeSingle();
+  if (obsLookupErr) {
+    throw new Error(`observation lookup: ${obsLookupErr.message}`);
+  }
+  if (existingObs) return;
+
+  const { error: obsErr } = await supabase.from("issue_observations").insert({
+    issue_id,
+    preflight_session_id,
+    action: "logged",
+    raw_transcript: extracted.raw_transcript.slice(0, RAW_TRANSCRIPT_MAX_CHARS),
+    summary: extracted.summary,
+  });
+  if (obsErr) {
+    throw new Error(`observation insert: ${obsErr.message}`);
   }
 }
