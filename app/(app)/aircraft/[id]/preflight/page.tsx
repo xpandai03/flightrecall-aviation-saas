@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 
@@ -22,6 +22,7 @@ import { StatusChip } from "@/components/status-chip";
 import { Button } from "@/components/ui/button";
 import {
   createSession,
+  finalizeSession,
   getInProgressSession,
   listAircraft,
 } from "@/lib/api/sessions";
@@ -73,7 +74,8 @@ type Step =
       mode: InputType;
       voiceTranscriptionId?: string;
       photo?: { previewUrl: string; quickTag: QuickTag | null };
-    };
+    }
+  | { kind: "finalizing" };
 
 function todayLabel(): string {
   return new Date().toLocaleDateString("en-US", {
@@ -154,6 +156,7 @@ function inputsFromResumedSession(
 
 export default function PreflightPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const aircraftId = params.id;
 
   const [aircraft, setAircraft] = React.useState<Aircraft | null>(null);
@@ -444,6 +447,21 @@ export default function PreflightPage() {
     refreshAircraftStatus();
   }, [poll, refreshActiveIssues, refreshAircraftStatus, revokePreviewUrls]);
 
+  const handleEndPreflight = React.useCallback(async () => {
+    if (!inProgressSession) return;
+    if (inputsLogged.length === 0) return;
+    setStep({ kind: "finalizing" });
+    try {
+      await finalizeSession(inProgressSession.id);
+      router.push(`/aircraft/${aircraftId}/dashboard`);
+    } catch (err) {
+      toast.error("Couldn't finalize preflight", {
+        description: err instanceof Error ? err.message : String(err),
+      });
+      setStep({ kind: "idle" });
+    }
+  }, [aircraftId, inProgressSession, inputsLogged.length, router]);
+
   const onIdle = step.kind === "idle";
   const hasInputs = inputsLogged.length > 0;
 
@@ -479,6 +497,24 @@ export default function PreflightPage() {
         ) : (
           <p className="text-sm text-muted-foreground">Loading aircraft…</p>
         ))}
+
+      {onIdle && (
+        <div className="flex flex-col items-center gap-2 w-full max-w-sm">
+          <Button
+            size="lg"
+            onClick={handleEndPreflight}
+            disabled={!hasInputs}
+            className="h-12 w-full rounded-full"
+          >
+            End Preflight
+          </Button>
+          {!hasInputs && (
+            <p className="text-xs text-text-muted text-center">
+              Log at least one input or use &ldquo;No issues&rdquo; to finalize.
+            </p>
+          )}
+        </div>
+      )}
 
       {step.kind === "recording" && (
         <VoiceRecorder onComplete={handleVoiceCaptured} onCancel={reset} />
@@ -578,6 +614,13 @@ export default function PreflightPage() {
           photo={step.photo}
           onDone={handleConfirmDone}
         />
+      )}
+
+      {step.kind === "finalizing" && (
+        <div className="flex flex-col items-center gap-3 text-muted-foreground">
+          <Loader2 className="size-6 animate-spin text-sky-500" />
+          <div className="text-sm">Finalizing preflight…</div>
+        </div>
       )}
     </div>
   );
