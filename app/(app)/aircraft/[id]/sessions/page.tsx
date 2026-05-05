@@ -18,6 +18,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
+import { EditableTranscript } from "@/components/editable-transcript"
 import { PhotoLightbox } from "@/components/photo-lightbox"
 import { StatusChip } from "@/components/status-chip"
 import { getSession, useSessions } from "@/lib/api/sessions"
@@ -153,6 +154,10 @@ function SessionDetail({ session }: { session: Session }) {
   const audioAssets = (detail?.media_assets ?? []).filter(
     (a) => a.media_type === "audio",
   )
+  const editableTranscripts = (detail?.voice_transcriptions ?? []).filter(
+    (t) =>
+      t.transcription_status === "completed" && t.transcript_text !== null,
+  )
 
   return (
     <>
@@ -224,6 +229,18 @@ function SessionDetail({ session }: { session: Session }) {
                 ))}
               </ul>
             )}
+          </section>
+        )}
+
+        {editableTranscripts.length > 0 && (
+          <section className="space-y-4">
+            {editableTranscripts.map((tx) => (
+              <EditableTranscript
+                key={tx.id}
+                transcriptionId={tx.id}
+                initialText={tx.transcript_text ?? ""}
+              />
+            ))}
           </section>
         )}
 
