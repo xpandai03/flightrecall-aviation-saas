@@ -142,10 +142,10 @@ export default async function DashboardPage({
   return (
     <div className="flex flex-col gap-6 sm:gap-8">
       {firstName && (
-        <p className="text-text-secondary text-sm sm:text-base">
+        <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-text-secondary">
           Hi,{" "}
-          <span className="text-text-primary font-medium">{firstName}</span>
-        </p>
+          <span className="text-text-primary">{firstName}</span>
+        </h1>
       )}
       <StatusCard
         tailNumber={aircraft.tail_number}
