@@ -108,3 +108,61 @@ export async function PATCH(
 
   return NextResponse.json(updated, { status: 200 });
 }
+
+/**
+ * Hard-delete an auto-extracted issue. issue_observations.issue_id has
+ * `on delete cascade` (0003_m3_schema.sql), so the per-session
+ * 'logged' observations vanish along with the parent. media_assets.
+ * issue_id has `on delete set null`, so any photo-quick-tag link is
+ * gracefully cleared rather than blocking the delete.
+ *
+ * IMPORTANT: this endpoint does NOT re-run keyword extraction.
+ * Removing an issue is the user telling us "this should not have been
+ * logged"; future re-extraction (a separate code path that we don't
+ * trigger here) might re-create it from the unchanged transcript —
+ * that's acceptable known V1 behavior, not a bug to engineer against.
+ *
+ * RLS: issues_delete_own enforces aircraft ownership. RLS-blocked OR
+ * truly missing both surface as 404 (no existence leak).
+ */
+export async function DELETE(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { id } = await params;
+  const idParsed = idSchema.safeParse(id);
+  if (!idParsed.success) {
+    return NextResponse.json({ error: "Invalid id" }, { status: 400 });
+  }
+
+  const cookieStore = await cookies();
+  const supabase = createClient(cookieStore);
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { data: deleted, error: deleteErr } = await supabase
+    .from("issues")
+    .delete()
+    .eq("id", idParsed.data)
+    .select("id")
+    .maybeSingle();
+
+  if (deleteErr) {
+    console.error("issues DELETE failed", {
+      issue_id: idParsed.data,
+      code: deleteErr.code,
+    });
+    return NextResponse.json({ error: deleteErr.message }, { status: 500 });
+  }
+
+  if (!deleted) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  return NextResponse.json({ id: deleted.id }, { status: 200 });
+}

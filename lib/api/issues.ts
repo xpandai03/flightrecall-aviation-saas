@@ -70,6 +70,17 @@ export function updateIssue(
   });
 }
 
+/**
+ * Hard-delete an auto-extracted issue. Cascades remove associated
+ * issue_observations rows; photo-quick-tag media_assets.issue_id is
+ * set null. Server-side does NOT re-run extraction.
+ */
+export function deleteIssue(issueId: string): Promise<{ id: string }> {
+  return jsonFetch<{ id: string }>(`/api/v1/issues/${issueId}`, {
+    method: "DELETE",
+  });
+}
+
 // Hooks ----------------------------------------------------------------
 
 export function useAircraftStatus(aircraftId: string | null): {
