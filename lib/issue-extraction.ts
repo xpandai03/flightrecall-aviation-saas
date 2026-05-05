@@ -166,18 +166,18 @@ const ISSUE_KEYS_DESC = sortedKeysDesc(ISSUE_KEYWORDS);
 const LOCATION_KEYS_DESC = sortedKeysDesc(LOCATION_KEYWORDS);
 
 /** Scan a normalized lowercased string for occurrences of any keyword
- *  in the table. Greedy: longer keys are matched first; once a span
- *  is consumed it can't be re-matched by a shorter overlapping key.
- *  Multiple disjoint occurrences of the same key are all returned. */
+ *  in the table. Greedy: longer keys match first; spans already in
+ *  `consumed` are skipped, and accepted matches mark their span as
+ *  consumed in place. The two-pass extractor passes its issue-pass
+ *  consumed map into the location pass so e.g. "belly" inside an
+ *  "oil on belly" issue match isn't double-counted as a location. */
 function scanKeywords<V>(
   text: string,
   table: Record<string, V>,
   keysDesc: string[],
+  consumed: boolean[],
 ): Match<V>[] {
   const matches: Match<V>[] = [];
-  // consumed[i] === true → char index i is inside a longer match
-  // already accepted. Skip indices that are consumed.
-  const consumed = new Array<boolean>(text.length).fill(false);
 
   for (const key of keysDesc) {
     let from = 0;
@@ -185,7 +185,6 @@ function scanKeywords<V>(
       const idx = text.indexOf(key, from);
       if (idx === -1) break;
       const end = idx + key.length;
-      // Reject if any char in [idx, end) is already consumed.
       let collides = false;
       for (let i = idx; i < end; i++) {
         if (consumed[i]) {
@@ -200,7 +199,6 @@ function scanKeywords<V>(
       from = end;
     }
   }
-  // Sort by start so callers see matches in transcript order.
   matches.sort((a, b) => a.start - b.start);
   return matches;
 }
@@ -216,12 +214,21 @@ function buildSummary(slug: string, location: string | null): string {
  *
  * Algorithm:
  *   1. Lowercase + collapse internal whitespace.
- *   2. Greedy-scan ISSUE_KEYWORDS (longest-first) for issue matches.
- *   3. Greedy-scan LOCATION_KEYWORDS over the unconsumed remainder
- *      for location matches.
- *   4. For each issue match, find the nearest location match within
- *      ±PAIR_WINDOW_CHARS by char distance; pair if found, else null.
- *   5. Build summary; deduplicate (slug, location) pairs (first wins).
+ *   2. Issue-pass: greedy-scan ISSUE_KEYWORDS (longest-first); accepted
+ *      matches mark their char-range as consumed.
+ *   3. Location-pass: greedy-scan LOCATION_KEYWORDS over the same
+ *      consumed map, so e.g. "belly" inside "oil on belly" can't
+ *      double-count as a separate location keyword.
+ *   4. Pairing — for each issue (in transcript order):
+ *        a. Look right: pick the nearest unclaimed location starting
+ *           after issue.end, within PAIR_WINDOW_CHARS.
+ *        b. Else look left: pick the nearest unclaimed location
+ *           ending before issue.start, within PAIR_WINDOW_CHARS.
+ *        c. Once a location is paired, it's claimed — no other issue
+ *           can take it. Rightward bias matches natural English
+ *           ("X on Y") and avoids the "corrosion grabs the belly that
+ *           the earlier oil leak was about to take" failure mode.
+ *   5. Build summary; deduplicate (slug, location) — first wins.
  *   6. Return array. Locations alone are dropped — per spec they
  *      "store as note only" via voice_transcriptions.transcript_text.
  *
@@ -232,30 +239,63 @@ export function extractIssues(transcript: string): ExtractedIssue[] {
   const text = transcript.toLowerCase().replace(/\s+/g, " ").trim();
   if (!text) return [];
 
-  const issueMatches = scanKeywords(text, ISSUE_KEYWORDS, ISSUE_KEYS_DESC);
+  const consumed = new Array<boolean>(text.length).fill(false);
+
+  const issueMatches = scanKeywords(
+    text,
+    ISSUE_KEYWORDS,
+    ISSUE_KEYS_DESC,
+    consumed,
+  );
   if (issueMatches.length === 0) return [];
 
   const locationMatches = scanKeywords(
     text,
     LOCATION_KEYWORDS,
     LOCATION_KEYS_DESC,
+    consumed,
   );
 
+  const claimedLocs = new Set<number>();
   const seen = new Set<string>();
   const out: ExtractedIssue[] = [];
 
   for (const issue of issueMatches) {
-    let nearest: Match<string> | null = null;
-    let nearestDist = Number.POSITIVE_INFINITY;
-    for (const loc of locationMatches) {
-      const dist = Math.abs(issue.start - loc.start);
-      if (dist < nearestDist) {
-        nearest = loc;
-        nearestDist = dist;
+    let pickedIdx = -1;
+    let bestDist = Number.POSITIVE_INFINITY;
+
+    // Look right first: nearest unclaimed location starting after this
+    // issue's end, within the window.
+    for (let i = 0; i < locationMatches.length; i++) {
+      if (claimedLocs.has(i)) continue;
+      const loc = locationMatches[i];
+      if (loc.start < issue.end) continue;
+      const dist = loc.start - issue.end;
+      if (dist <= PAIR_WINDOW_CHARS && dist < bestDist) {
+        pickedIdx = i;
+        bestDist = dist;
       }
     }
-    const location =
-      nearest && nearestDist <= PAIR_WINDOW_CHARS ? nearest.value : null;
+
+    // No rightward match? Fall back to leftward.
+    if (pickedIdx === -1) {
+      for (let i = 0; i < locationMatches.length; i++) {
+        if (claimedLocs.has(i)) continue;
+        const loc = locationMatches[i];
+        if (loc.end > issue.start) continue;
+        const dist = issue.start - loc.end;
+        if (dist <= PAIR_WINDOW_CHARS && dist < bestDist) {
+          pickedIdx = i;
+          bestDist = dist;
+        }
+      }
+    }
+
+    let location: string | null = null;
+    if (pickedIdx !== -1) {
+      claimedLocs.add(pickedIdx);
+      location = locationMatches[pickedIdx].value;
+    }
 
     const dedupeKey = `${issue.value}|${location ?? ""}`;
     if (seen.has(dedupeKey)) continue;
