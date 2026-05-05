@@ -133,10 +133,13 @@ export async function runTranscription(args: RunArgs): Promise<void> {
       })
       .eq("id", voice_transcription_id);
 
-    await supabase
-      .from("preflight_sessions")
-      .update({ transcript_text: result.text })
-      .eq("id", preflight_session_id);
+    // Multi-input sessions can carry many voice notes; the canonical
+    // transcript lives on voice_transcriptions, not on the session row.
+    // (Pre-Phase-1 behavior wrote result.text to preflight_sessions.transcript_text,
+    // which would silently overwrite an earlier note's transcript on the
+    // second voice in a multi-input session.) summarizeSession() already
+    // prefers voice_transcriptions[0].transcript_text and falls back to
+    // the session column for legacy single-input rows.
 
     // If this audio was tagged at upload time, the issue exists with a null
     // description. Backfill it from the transcript (overwrite unconditionally
