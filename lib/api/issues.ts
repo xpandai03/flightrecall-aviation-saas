@@ -7,6 +7,7 @@ import type {
   AircraftStatus,
   IssueAction,
   IssueObservation,
+  IssueType,
   IssueWithType,
 } from "@/lib/types/database";
 
@@ -79,6 +80,15 @@ export function deleteIssue(issueId: string): Promise<{ id: string }> {
   return jsonFetch<{ id: string }>(`/api/v1/issues/${issueId}`, {
     method: "DELETE",
   });
+}
+
+/**
+ * Reference data: full issue_types taxonomy. Pre-loaded once per
+ * Confirmation mount and passed as a prop into each row's edit
+ * dropdown — avoids per-row fetch storms.
+ */
+export function fetchIssueTypes(): Promise<IssueType[]> {
+  return jsonFetch<IssueType[]>("/api/v1/issue-types");
 }
 
 // Hooks ----------------------------------------------------------------
