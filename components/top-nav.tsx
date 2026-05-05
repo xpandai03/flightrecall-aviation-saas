@@ -57,7 +57,7 @@ export function TopNav({
               width={120}
               height={96}
               priority
-              className="h-12 w-auto"
+              className="h-24 w-auto"
             />
           </Link>
           <div className="absolute right-3 top-1/2 -translate-y-1/2">
