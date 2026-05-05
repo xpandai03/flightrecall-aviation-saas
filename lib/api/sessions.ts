@@ -8,6 +8,7 @@ import type {
   PreflightSessionDetail,
   PreflightSessionWithMedia,
   StatusColor,
+  VoiceTranscription,
 } from "@/lib/types/database";
 import type { Session } from "@/lib/mock-helpers";
 import { adaptSession } from "@/lib/api/adapter";
@@ -93,6 +94,26 @@ export function requestUploadUrl(body: UploadUrlInput): Promise<UploadUrlRespons
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+}
+
+/**
+ * Edit the transcript_text on an existing voice_transcriptions row.
+ * Server enforces RLS via session→aircraft→user scoping. Empty string
+ * is permitted and persists. Does NOT re-run keyword extraction —
+ * existing extracted issues stay (V1 limitation, see route handler).
+ */
+export function updateTranscript(
+  id: string,
+  transcript_text: string,
+): Promise<VoiceTranscription> {
+  return jsonFetch<VoiceTranscription>(
+    `/api/v1/voice-transcriptions/${id}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ transcript_text }),
+    },
+  );
 }
 
 // =====================================================================
