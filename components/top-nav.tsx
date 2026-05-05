@@ -44,16 +44,16 @@ export function TopNav({
 
   return (
     <header className="sticky top-0 z-40 w-full border-b border-border/60 bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-2 sm:gap-3 px-3 sm:px-6">
+      <div className="mx-auto flex h-20 sm:h-24 max-w-6xl items-center justify-between gap-2 sm:gap-3 px-3 sm:px-6">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <Link href={homeHref} className="flex items-center group shrink-0">
             <Image
               src="/flight-recall-logo.png"
               alt="Flight Recall"
-              width={50}
-              height={40}
+              width={120}
+              height={96}
               priority
-              className="h-7 sm:h-8 w-auto"
+              className="h-16 sm:h-20 w-auto"
             />
           </Link>
           {!onOnboarding && (
