@@ -614,6 +614,7 @@ export default function PreflightPage() {
           voiceTranscriptionId={
             step.mode === "voice" ? step.voiceTranscriptionId : undefined
           }
+          sessionId={step.session.id}
           photo={step.photo}
           onDone={handleConfirmDone}
         />
