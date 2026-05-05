@@ -27,7 +27,7 @@ export default async function AppLayout({
   const aircraft: Aircraft[] = data ?? [];
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-background via-background to-sky-50/40">
+    <div className="min-h-screen bg-background">
       <TopNav
         aircraft={aircraft}
         userEmail={user.email ?? null}
