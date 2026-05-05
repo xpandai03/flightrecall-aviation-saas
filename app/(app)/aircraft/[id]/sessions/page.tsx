@@ -18,6 +18,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
+import { PhotoLightbox } from "@/components/photo-lightbox"
 import { StatusChip } from "@/components/status-chip"
 import { getSession, useSessions } from "@/lib/api/sessions"
 import type { Session } from "@/lib/mock-helpers"
@@ -304,6 +305,8 @@ function statusLabel(
 }
 
 function PhotoTile({ asset }: { asset: MediaAssetWithSignedUrl }) {
+  const [open, setOpen] = React.useState(false)
+
   if (!asset.signed_url) {
     return (
       <div className="aspect-square rounded-lg bg-muted ring-1 ring-border/60 flex flex-col items-center justify-center text-muted-foreground gap-1">
@@ -313,20 +316,33 @@ function PhotoTile({ asset }: { asset: MediaAssetWithSignedUrl }) {
     )
   }
   return (
-    <div className="relative aspect-square rounded-lg overflow-hidden ring-1 ring-border/60 bg-muted">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="relative aspect-square rounded-lg overflow-hidden ring-1 ring-border/60 bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+        aria-label={`Open ${asset.file_name ?? "preflight photo"} full screen`}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={asset.signed_url}
+          alt={asset.file_name ?? "Preflight photo"}
+          className="absolute inset-0 w-full h-full object-cover"
+          loading="lazy"
+        />
+        {asset.quick_tag && (
+          <span className="absolute bottom-1 left-1 inline-flex items-center rounded-full bg-white/90 backdrop-blur px-1.5 py-0.5 text-[10px] font-medium text-sky-700 capitalize ring-1 ring-sky-200">
+            {asset.quick_tag}
+          </span>
+        )}
+      </button>
+      <PhotoLightbox
+        open={open}
+        onOpenChange={setOpen}
         src={asset.signed_url}
         alt={asset.file_name ?? "Preflight photo"}
-        className="absolute inset-0 w-full h-full object-cover"
-        loading="lazy"
       />
-      {asset.quick_tag && (
-        <span className="absolute bottom-1 left-1 inline-flex items-center rounded-full bg-white/90 backdrop-blur px-1.5 py-0.5 text-[10px] font-medium text-sky-700 capitalize ring-1 ring-sky-200">
-          {asset.quick_tag}
-        </span>
-      )}
-    </div>
+    </>
   )
 }
 
