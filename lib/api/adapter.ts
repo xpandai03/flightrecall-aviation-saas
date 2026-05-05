@@ -1,7 +1,9 @@
 import type {
   Aircraft,
+  IssueObservationDetail,
   PreflightSession,
   PreflightSessionWithMedia,
+  QuickTag,
 } from "@/lib/types/database";
 import {
   type Observation,
@@ -118,4 +120,93 @@ export function adaptSession(
     repeatedFlags: computeRepeatedFlags(row, allRows),
     statusColor: row.status_color,
   };
+}
+
+// ---------------------------------------------------------------------------
+// summarizeSession — five-tier fallback used by the redesigned Dashboard's
+// recent-sessions list. Independent of adaptSession; never returns the
+// generic "Voice note" / "Photo" labels the old dashboard used.
+// ---------------------------------------------------------------------------
+
+const QUICK_TAG_LABEL: Record<QuickTag, string> = {
+  scratch: "Scratch",
+  dent: "Dent",
+  tire: "Tire wear",
+  oil: "Oil residue",
+  other: "Other",
+};
+
+const SUMMARY_MAX_CHARS = 60;
+
+/** Truncate to ~60 chars, append U+2026 ellipsis (not three dots). */
+function truncate(s: string): string {
+  const trimmed = s.trim();
+  if (trimmed.length <= SUMMARY_MAX_CHARS) return trimmed;
+  return trimmed.slice(0, SUMMARY_MAX_CHARS - 1).trimEnd() + "…";
+}
+
+function firstNonEmptyLine(s: string | null | undefined): string | null {
+  if (!s) return null;
+  for (const line of s.split(/\r?\n/)) {
+    const t = line.trim();
+    if (t) return t;
+  }
+  return null;
+}
+
+// Lenient input shape: the dashboard's direct Supabase query may not select
+// every PreflightSessionWithMedia field. We only read what we use.
+export type SummarizableSession = Pick<
+  PreflightSession,
+  "input_type" | "status_color" | "transcript_text" | "notes_text"
+> & {
+  media_assets?: Array<{ media_type: "photo" | "audio"; quick_tag: QuickTag | null }>;
+  voice_transcriptions?: Array<{ transcript_text: string | null }>;
+  issue_observations?: IssueObservationDetail[];
+};
+
+/**
+ * Five-tier fallback chain:
+ *   1. Joined issue_observations[].issue.issue_type.name (one or two, comma-joined)
+ *   2. transcript_text first non-empty line (or voice_transcriptions[0].transcript_text)
+ *   3. notes_text first non-empty line
+ *   4. media_assets[].quick_tag mapped via QUICK_TAG_LABEL (never raw slug)
+ *   5. status_color === 'green' → "No issues reported"; else "Logged"
+ *
+ * Output is hard-capped at 60 chars + ellipsis.
+ */
+export function summarizeSession(session: SummarizableSession): string {
+  // Tier 1: tracked-issue observations.
+  const observations = session.issue_observations ?? [];
+  if (observations.length > 0) {
+    const names = Array.from(
+      new Set(
+        observations
+          .map((o) => o.issue?.issue_type?.name)
+          .filter((n): n is string => Boolean(n)),
+      ),
+    ).slice(0, 2);
+    // TODO: append a per-action suffix (still / fixed) once UX confirms phrasing.
+    if (names.length > 0) return truncate(names.join(", "));
+  }
+
+  // Tier 2: transcript (column or joined transcription row).
+  const transcriptLine =
+    firstNonEmptyLine(session.transcript_text) ??
+    firstNonEmptyLine(session.voice_transcriptions?.[0]?.transcript_text);
+  if (transcriptLine) return truncate(transcriptLine);
+
+  // Tier 3: typed notes.
+  const notesLine = firstNonEmptyLine(session.notes_text);
+  if (notesLine) return truncate(notesLine);
+
+  // Tier 4: quick tag from any tagged media asset.
+  const taggedMedia = (session.media_assets ?? []).find((m) => m.quick_tag);
+  if (taggedMedia?.quick_tag) {
+    return QUICK_TAG_LABEL[taggedMedia.quick_tag];
+  }
+
+  // Tier 5: status-based fallback.
+  if (session.status_color === "green") return "No issues reported";
+  return "Logged";
 }
