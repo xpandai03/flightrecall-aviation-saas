@@ -51,6 +51,25 @@ export function postIssueObservation(
   });
 }
 
+/**
+ * Edit an auto-extracted issue's type and/or location. Server-side
+ * does NOT re-run keyword extraction (V1 limitation, see route handler).
+ * Returns the updated row joined with its issue_type.
+ *
+ * Throws on 409 unique-constraint conflict — caller should detect the
+ * 409 in the error message and surface the targeted toast copy.
+ */
+export function updateIssue(
+  issueId: string,
+  patch: { issue_type_id?: string; location?: string | null },
+): Promise<IssueWithType> {
+  return jsonFetch<IssueWithType>(`/api/v1/issues/${issueId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+}
+
 // Hooks ----------------------------------------------------------------
 
 export function useAircraftStatus(aircraftId: string | null): {
