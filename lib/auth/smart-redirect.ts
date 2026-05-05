@@ -36,10 +36,24 @@ export async function smartRedirect(page: "dashboard" | "sessions" | "memory") {
     redirect("/onboarding/add-aircraft");
   }
 
-  const lastUsedId = cookieStore.get("last_aircraft_id")?.value ?? null;
+  // Use || (not ??) so an empty-string cookie value normalizes to null
+  // alongside undefined. The logout route clears the cookie via
+  // `set("", { maxAge: 0 })`, which the browser may surface on the next
+  // request as a literal "" before expiration registers — without this
+  // the empty string flowed through and produced /aircraft//<page>.
+  const lastUsedId =
+    cookieStore.get("last_aircraft_id")?.value || null;
   const targetId =
     (lastUsedId && aircraft.find((a) => a.id === lastUsedId)?.id) ??
     aircraft[0].id;
+
+  // Defensive backstop: should be unreachable (aircraft.length > 0
+  // already verified above), but routing 404s are the worst silent
+  // failure mode. If anything ever leaves targetId falsy, surface it as
+  // a loud onboarding redirect rather than a malformed /aircraft//<page>.
+  if (!targetId) {
+    redirect("/onboarding/add-aircraft");
+  }
 
   redirect(`/aircraft/${targetId}/${page}`);
 }
