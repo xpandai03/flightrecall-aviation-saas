@@ -29,13 +29,19 @@ async function upsertIssueForMedia(args: {
   if (sesErr) return { ok: false, error: sesErr.message };
   if (!session) return { ok: false, error: "session not found" };
 
-  // Look for an existing issue for this aircraft+type. If found, refresh
-  // last_seen_at and re-activate if it was resolved. If not found, create.
+  // Look for an existing issue for this aircraft+type WITH location IS NULL.
+  // The legacy photo-quick-tag path has no location signal at upload time,
+  // so its rows always carry location=NULL. Post-M5 the unique constraint
+  // is (aircraft_id, issue_type_id, location), and Postgres treats NULL as
+  // distinct in unique constraints — without `.is("location", null)` here
+  // a second photo upload of the same quick_tag would create a duplicate
+  // row instead of refreshing the existing one's last_seen_at.
   const { data: existing, error: lookupErr } = await supabase
     .from("issues")
     .select("*")
     .eq("aircraft_id", session.aircraft_id)
     .eq("issue_type_id", type.id)
+    .is("location", null)
     .maybeSingle();
   if (lookupErr) return { ok: false, error: lookupErr.message };
 
