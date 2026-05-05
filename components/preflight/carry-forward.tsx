@@ -69,6 +69,12 @@ function CarryForwardRow({
       <div className="mb-2">
         <div className="text-sm font-semibold tracking-tight text-text-primary">
           {issue.issue_type.name}
+          {issue.location && (
+            <span className="text-text-secondary font-normal">
+              {" "}
+              — {issue.location}
+            </span>
+          )}
         </div>
         <div className="text-[11px] text-text-secondary">
           Seen {issue.flights_since}{" "}
