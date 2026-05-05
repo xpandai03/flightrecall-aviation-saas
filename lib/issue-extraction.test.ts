@@ -112,16 +112,16 @@ describe("extractIssues — pairing window (50 chars)", () => {
 });
 
 describe("extractIssues — longest-match-first dominates substring overlap", () => {
-  it("'oil on belly' beats 'oil leak' + standalone 'belly' on overlap", () => {
-    // Per the V1 spec, 'oil on belly' is itself an issue keyword
-    // (slug=oil_on_belly), not 'oil leak' + location 'belly'.
-    const result = extractIssues("see some oil on belly here");
+  it("'oil leak' beats bare 'oil' on overlap (longest-first)", () => {
+    // Both "oil leak" (slug=oil_leak) and bare "oil" (slug=oil_leak)
+    // are issue keywords; longest-match-first ensures the explicit
+    // phrase consumes the span before bare "oil" gets to scan it.
+    const result = extractIssues("see oil leak on the belly");
     expect(result).toHaveLength(1);
-    expect(result[0].type_slug).toBe("oil_on_belly");
-    // Location: nearest LOCATION_KEYWORDS match outside the consumed
-    // span. The literal "belly" inside "oil on belly" is consumed; no
-    // other location keyword exists in the transcript.
-    expect(result[0].location).toBeNull();
+    expect(result[0]).toMatchObject({
+      type_slug: "oil_leak",
+      location: "Fuselage",
+    });
   });
 
   it("'left wing' beats standalone 'wing' (which isn't a key anyway)", () => {
@@ -162,12 +162,14 @@ describe("internal vocabulary tables", () => {
     }
   });
 
-  it("ISSUE_KEYWORDS values match the V1 spec slug set (31 entries)", () => {
+  it("ISSUE_KEYWORDS values match the V1 spec slug set (29 entries)", () => {
     const slugs = new Set(Object.values(__testing__.ISSUE_KEYWORDS));
-    // 30 new slugs from the M5 migration + the legacy 'dent' slug,
-    // which the V1 STRUCTURAL spec lists as a voice keyword and which
-    // already exists in the issue_types seed pre-migration.
-    expect(slugs.size).toBe(31);
+    // 28 slugs from the M5 migration (oil_on_belly + oil_on_engine
+    // dropped in the M5 #2 corrective patch — the location pairer
+    // handles them) plus the legacy 'dent' slug. Bare "oil" was added
+    // as a keyword pointing to the existing oil_leak slug, so the
+    // unique-slug count stayed at 29 rather than 30.
+    expect(slugs.size).toBe(29);
   });
 
   it("LOCATION_KEYWORDS canonicalizes to the V1 spec's 6 location groups", () => {
@@ -193,5 +195,131 @@ describe("extractIssues — known V1 limitation: negation NOT handled (documents
     expect(result[0].type_slug).toBe("oil_leak");
     // This test exists to make the V1 limitation visible — change
     // assertion to .toEqual([]) when negation handling lands.
+  });
+});
+
+/**
+ * Real-world Whisper transcripts. Synthetic keyword-perfect strings
+ * give false confidence — actual iPhone Safari voice input includes
+ * filler words ("the", "a", "so there is") that the M2 Phase 2
+ * compound-slug map could not tolerate. These cases anchor the M5 #2
+ * corrective patch: each transcript is a plausible pilot utterance.
+ *
+ * The first two are the actual production failures from sessions
+ * 66b16c86-... and a44dad1a-... that triggered this patch.
+ */
+describe("extractIssues — real-world Whisper transcripts (production cases)", () => {
+  it("production transcript #1: oil + belly + corrosion + left wing", () => {
+    const transcript = "Oil on the belly and corrosion on the left wing root.";
+    const result = extractIssues(transcript);
+
+    expect(result).toHaveLength(2);
+    expect(result[0]).toMatchObject({
+      type_slug: "oil_leak",
+      location: "Fuselage",
+      summary: "Oil Leak observed on Fuselage",
+    });
+    expect(result[1]).toMatchObject({
+      type_slug: "corrosion",
+      location: "Left Wing",
+      summary: "Corrosion observed on Left Wing",
+    });
+  });
+
+  it("production transcript #2: same content with filler prefix", () => {
+    const transcript =
+      "So there is oil on the belly and corrosion on the left wing root.";
+    const result = extractIssues(transcript);
+
+    expect(result).toHaveLength(2);
+    expect(result.map((r) => r.type_slug)).toEqual(["oil_leak", "corrosion"]);
+    expect(result.map((r) => r.location)).toEqual(["Fuselage", "Left Wing"]);
+  });
+
+  it("oil leak phrase + belly with filler 'under the'", () => {
+    const result = extractIssues("There's an oil leak under the belly today");
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      type_slug: "oil_leak",
+      location: "Fuselage",
+    });
+  });
+
+  it("corrosion + 'near the' filler before location", () => {
+    const result = extractIssues("I see corrosion near the left wing");
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      type_slug: "corrosion",
+      location: "Left Wing",
+    });
+  });
+
+  it("tire worn + landing-gear location", () => {
+    const result = extractIssues("Tire worn on the right main");
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      type_slug: "tire_worn",
+      location: "Landing Gear",
+    });
+  });
+
+  it("bare 'oil' + alternate fuselage/engine-area location ('cowling')", () => {
+    const result = extractIssues("Some oil on the cowling today");
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      type_slug: "oil_leak",
+      location: "Engine Area",
+    });
+  });
+});
+
+/**
+ * Word-boundary guard for short keywords (length <= 3). Without this,
+ * bare "oil" matches inside "spoiler" (s-p-O-I-L-e-r) and "boiling"
+ * (b-O-I-L-ing), producing phantom oil_leak rows.
+ */
+describe("extractIssues — word-boundary matching for short keywords", () => {
+  it("does not match 'oil' inside 'spoilers'", () => {
+    const result = extractIssues("lowered the spoilers on landing");
+    expect(result).toEqual([]);
+  });
+
+  it("does not match 'oil' inside 'boiling'", () => {
+    const result = extractIssues("boiling water everywhere");
+    expect(result).toEqual([]);
+  });
+
+  it("still matches 'oil' as a whole word at sentence start", () => {
+    const result = extractIssues("Oil on the belly");
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      type_slug: "oil_leak",
+      location: "Fuselage",
+    });
+  });
+});
+
+/**
+ * Unpaired short-keyword drop. Bare "oil" with no location keyword
+ * within PAIR_WINDOW_CHARS is too ambiguous to emit ("oil pressure
+ * looks normal" is not a defect). Multi-word phrases like "oil leak"
+ * remain explicit and still emit when unpaired.
+ */
+describe("extractIssues — drop unpaired short-keyword issues", () => {
+  it("'Oil pressure looks normal.' → zero issues (no nearby location)", () => {
+    expect(extractIssues("Oil pressure looks normal.")).toEqual([]);
+  });
+
+  it("'Oil temp is fine.' → zero issues (no nearby location)", () => {
+    expect(extractIssues("Oil temp is fine.")).toEqual([]);
+  });
+
+  it("'There's an oil leak.' → 1 issue oil_leak/null (phrase still emits unpaired)", () => {
+    const result = extractIssues("There's an oil leak.");
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      type_slug: "oil_leak",
+      location: null,
+    });
   });
 });
