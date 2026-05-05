@@ -52,42 +52,51 @@ export default async function DashboardPage({
   const cookieStore = await cookies();
   const supabase = createClient(cookieStore);
 
-  const [aircraftRes, issueCountRes, activeIssuesRes, sessionTimesRes, recentSessionsRes] =
-    await Promise.all([
-      supabase
-        .from("aircraft")
-        .select("id, tail_number, aircraft_type")
-        .eq("id", aircraftId)
-        .maybeSingle(),
-      supabase
-        .from("issues")
-        .select("*", { count: "exact", head: true })
-        .eq("aircraft_id", aircraftId)
-        .eq("current_status", "active"),
-      supabase
-        .from("issues")
-        .select("*, issue_type:issue_types(*)")
-        .eq("aircraft_id", aircraftId)
-        .eq("current_status", "active")
-        .order("last_seen_at", { ascending: false })
-        .limit(ISSUES_LIMIT),
-      supabase
-        .from("preflight_sessions")
-        .select("created_at")
-        .eq("aircraft_id", aircraftId)
-        .order("created_at", { ascending: true }),
-      supabase
-        .from("preflight_sessions")
-        .select(
-          "id, input_type, status_color, created_at, transcript_text, notes_text, " +
-            "media_assets(id, media_type, quick_tag), " +
-            "voice_transcriptions(id, transcript_text), " +
-            "issue_observations(*, issue:issues(*, issue_type:issue_types(*)))",
-        )
-        .eq("aircraft_id", aircraftId)
-        .order("created_at", { ascending: false })
-        .limit(RECENT_LIMIT),
-    ]);
+  const [
+    userRes,
+    aircraftRes,
+    issueCountRes,
+    activeIssuesRes,
+    sessionTimesRes,
+    recentSessionsRes,
+  ] = await Promise.all([
+    supabase.auth.getUser(),
+    supabase
+      .from("aircraft")
+      .select("id, tail_number, aircraft_type")
+      .eq("id", aircraftId)
+      .maybeSingle(),
+    supabase
+      .from("issues")
+      .select("*", { count: "exact", head: true })
+      .eq("aircraft_id", aircraftId)
+      .eq("current_status", "active"),
+    supabase
+      .from("issues")
+      .select("*, issue_type:issue_types(*)")
+      .eq("aircraft_id", aircraftId)
+      .eq("current_status", "active")
+      .order("last_seen_at", { ascending: false })
+      .limit(ISSUES_LIMIT),
+    supabase
+      .from("preflight_sessions")
+      .select("created_at")
+      .eq("aircraft_id", aircraftId)
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("preflight_sessions")
+      .select(
+        "id, input_type, status_color, created_at, transcript_text, notes_text, " +
+          "media_assets(id, media_type, quick_tag), " +
+          "voice_transcriptions(id, transcript_text), " +
+          "issue_observations(*, issue:issues(*, issue_type:issue_types(*)))",
+      )
+      .eq("aircraft_id", aircraftId)
+      .order("created_at", { ascending: false })
+      .limit(RECENT_LIMIT),
+  ]);
+
+  const firstName = resolveFirstName(userRes.data.user);
 
   if (!aircraftRes.data) notFound();
   const aircraft = aircraftRes.data;
@@ -132,6 +141,12 @@ export default async function DashboardPage({
 
   return (
     <div className="flex flex-col gap-6 sm:gap-8">
+      {firstName && (
+        <p className="text-text-secondary text-sm sm:text-base">
+          Hi,{" "}
+          <span className="text-text-primary font-medium">{firstName}</span>
+        </p>
+      )}
       <StatusCard
         tailNumber={aircraft.tail_number}
         aircraftModel={aircraft.aircraft_type}
@@ -274,6 +289,24 @@ function statusFromColor(
   if (color === "red") return "critical";
   if (color === "yellow") return "warning";
   return "all_clear";
+}
+
+type AuthUserShape = {
+  email?: string | null;
+  user_metadata?: { first_name?: unknown } | null;
+} | null;
+
+function resolveFirstName(user: AuthUserShape): string | null {
+  const metaName = user?.user_metadata?.first_name;
+  if (typeof metaName === "string" && metaName.trim().length > 0) {
+    return metaName.trim();
+  }
+  const email = user?.email;
+  if (email) {
+    const local = email.split("@")[0]?.trim();
+    if (local) return local.charAt(0).toUpperCase() + local.slice(1);
+  }
+  return null;
 }
 
 function formatRelative(iso: string): string {
