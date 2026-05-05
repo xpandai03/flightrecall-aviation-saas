@@ -31,14 +31,27 @@ export type ExtractedIssue = {
  *  nearest location keyword within ±this distance. Tunable. */
 const PAIR_WINDOW_CHARS = 50;
 
-/** Issue keyword → issue_types.slug. Longest match wins on overlap. */
+/** Keywords at or below this length must be word-bounded on both sides
+ *  during scanning (so bare "oil" doesn't match inside "spoiler" or
+ *  "boiling") and are dropped from the issue output if they fail to
+ *  pair with a nearby location (so "the oil pressure looks normal"
+ *  doesn't emit a phantom oil_leak). Multi-word phrases like
+ *  "oil leak" are unaffected — explicit phrases emit with or without
+ *  a paired location. */
+const SHORT_KEYWORD_MAX_LEN = 3;
+
+/** Issue keyword → issue_types.slug. Longest match wins on overlap.
+ *  Compound issue+location keys (e.g. "oil on belly") are deliberately
+ *  absent: the location pairer below decomposes them into base issue
+ *  + location at extraction time. */
 const ISSUE_KEYWORDS: Record<string, string> = {
-  // ENGINE/OIL — note "oil on belly" / "oil on engine" are issue
-  // keywords (not "oil leak" + "belly"); longest-match-first picks
-  // them up as a single structured pair.
+  // ENGINE/OIL — bare "oil" handles natural Whisper transcripts
+  // ("oil on the belly") that filler words like "the" would otherwise
+  // break. The compound oil_on_belly/oil_on_engine slugs were dropped
+  // in the M5 #2 corrective patch; pairing yields oil_leak + Fuselage
+  // / Engine Area instead.
   "oil leak": "oil_leak",
-  "oil on belly": "oil_on_belly",
-  "oil on engine": "oil_on_engine",
+  oil: "oil_leak",
   "oil low": "oil_low",
   "oil dirty": "oil_dirty",
   // STRUCTURAL
@@ -112,8 +125,6 @@ const LOCATION_KEYWORDS: Record<string, string> = {
  *  without round-tripping to the database at extraction time. */
 const ISSUE_NAME_BY_SLUG: Record<string, string> = {
   oil_leak: "Oil Leak",
-  oil_on_belly: "Oil on Belly",
-  oil_on_engine: "Oil on Engine",
   oil_low: "Oil Low",
   oil_dirty: "Oil Dirty",
   crack: "Crack",
@@ -156,8 +167,8 @@ type Match<V> = {
 };
 
 /** Sort the keys of a keyword table longest-first so multi-word
- *  matches dominate single-word substrings ("oil on belly" beats
- *  "belly"; "left wing" beats "wing"). Returned once at module load. */
+ *  matches dominate single-word substrings ("oil leak" beats bare
+ *  "oil"; "left wing" beats "wing"). Returned once at module load. */
 function sortedKeysDesc(table: Record<string, unknown>): string[] {
   return Object.keys(table).sort((a, b) => b.length - a.length);
 }
@@ -165,12 +176,18 @@ function sortedKeysDesc(table: Record<string, unknown>): string[] {
 const ISSUE_KEYS_DESC = sortedKeysDesc(ISSUE_KEYWORDS);
 const LOCATION_KEYS_DESC = sortedKeysDesc(LOCATION_KEYWORDS);
 
+function isWordChar(ch: string): boolean {
+  return /[a-z0-9]/.test(ch);
+}
+
 /** Scan a normalized lowercased string for occurrences of any keyword
  *  in the table. Greedy: longer keys match first; spans already in
  *  `consumed` are skipped, and accepted matches mark their span as
- *  consumed in place. The two-pass extractor passes its issue-pass
- *  consumed map into the location pass so e.g. "belly" inside an
- *  "oil on belly" issue match isn't double-counted as a location. */
+ *  consumed in place. Keys at or below SHORT_KEYWORD_MAX_LEN must be
+ *  word-bounded on both sides so bare "oil" doesn't match inside
+ *  "spoiler" or "boiling". The two-pass extractor passes its
+ *  issue-pass consumed map into the location pass so a location word
+ *  embedded in an issue match can't double-count. */
 function scanKeywords<V>(
   text: string,
   table: Record<string, V>,
@@ -180,19 +197,27 @@ function scanKeywords<V>(
   const matches: Match<V>[] = [];
 
   for (const key of keysDesc) {
+    const requireWordBoundary = key.length <= SHORT_KEYWORD_MAX_LEN;
     let from = 0;
     while (from < text.length) {
       const idx = text.indexOf(key, from);
       if (idx === -1) break;
       const end = idx + key.length;
-      let collides = false;
+      let skip = false;
       for (let i = idx; i < end; i++) {
         if (consumed[i]) {
-          collides = true;
+          skip = true;
           break;
         }
       }
-      if (!collides) {
+      if (!skip && requireWordBoundary) {
+        const before = idx > 0 ? text[idx - 1] : "";
+        const after = end < text.length ? text[end] : "";
+        if ((before && isWordChar(before)) || (after && isWordChar(after))) {
+          skip = true;
+        }
+      }
+      if (!skip) {
         matches.push({ keyword: key, value: table[key], start: idx, end });
         for (let i = idx; i < end; i++) consumed[i] = true;
       }
@@ -217,8 +242,8 @@ function buildSummary(slug: string, location: string | null): string {
  *   2. Issue-pass: greedy-scan ISSUE_KEYWORDS (longest-first); accepted
  *      matches mark their char-range as consumed.
  *   3. Location-pass: greedy-scan LOCATION_KEYWORDS over the same
- *      consumed map, so e.g. "belly" inside "oil on belly" can't
- *      double-count as a separate location keyword.
+ *      consumed map, so a location word embedded in an issue match
+ *      (rare now that compound slugs are gone) can't double-count.
  *   4. Pairing — for each issue (in transcript order):
  *        a. Look right: pick the nearest unclaimed location starting
  *           after issue.end, within PAIR_WINDOW_CHARS.
@@ -228,6 +253,10 @@ function buildSummary(slug: string, location: string | null): string {
  *           can take it. Rightward bias matches natural English
  *           ("X on Y") and avoids the "corrosion grabs the belly that
  *           the earlier oil leak was about to take" failure mode.
+ *        d. Drop unpaired short-keyword matches (length ≤
+ *           SHORT_KEYWORD_MAX_LEN). Bare "oil" with no nearby location
+ *           is too ambiguous ("oil pressure", "oil temp") to emit;
+ *           multi-word phrases like "oil leak" still emit unpaired.
  *   5. Build summary; deduplicate (slug, location) — first wins.
  *   6. Return array. Locations alone are dropped — per spec they
  *      "store as note only" via voice_transcriptions.transcript_text.
@@ -297,6 +326,10 @@ export function extractIssues(transcript: string): ExtractedIssue[] {
       location = locationMatches[pickedIdx].value;
     }
 
+    if (location === null && issue.keyword.length <= SHORT_KEYWORD_MAX_LEN) {
+      continue;
+    }
+
     const dedupeKey = `${issue.value}|${location ?? ""}`;
     if (seen.has(dedupeKey)) continue;
     seen.add(dedupeKey);
@@ -318,4 +351,5 @@ export const __testing__ = {
   LOCATION_KEYWORDS,
   ISSUE_NAME_BY_SLUG,
   PAIR_WINDOW_CHARS,
+  SHORT_KEYWORD_MAX_LEN,
 };
