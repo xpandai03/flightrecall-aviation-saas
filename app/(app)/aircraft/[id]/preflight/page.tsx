@@ -611,6 +611,9 @@ export default function PreflightPage() {
           createdAtIso={step.session.created_at}
           statusColor={step.session.status_color}
           poll={step.mode === "voice" ? poll : undefined}
+          voiceTranscriptionId={
+            step.mode === "voice" ? step.voiceTranscriptionId : undefined
+          }
           photo={step.photo}
           onDone={handleConfirmDone}
         />

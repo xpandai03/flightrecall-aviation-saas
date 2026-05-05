@@ -1,8 +1,11 @@
 "use client";
 
+import * as React from "react";
 import { CheckCircle2, Plane, AlertTriangle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { EditableTranscript } from "@/components/editable-transcript";
+import { PhotoLightbox } from "@/components/photo-lightbox";
 import type { InputType, QuickTag, StatusColor } from "@/lib/types/database";
 import type { PollResult } from "@/hooks/use-transcription-poll";
 
@@ -13,6 +16,7 @@ export type ConfirmationProps = {
   statusColor: StatusColor | null;
   // voice-only
   poll?: PollResult;
+  voiceTranscriptionId?: string;
   // photo-only
   photo?: { previewUrl: string; quickTag: QuickTag | null };
   onDone: () => void;
@@ -62,6 +66,7 @@ export function Confirmation({
   createdAtIso,
   statusColor,
   poll,
+  voiceTranscriptionId,
   photo,
   onDone,
 }: ConfirmationProps) {
@@ -99,7 +104,12 @@ export function Confirmation({
           <p className="text-sm text-foreground">All systems nominal.</p>
         )}
 
-        {showVoicePanel && poll && <VoicePanel poll={poll} />}
+        {showVoicePanel && poll && (
+          <VoicePanel
+            poll={poll}
+            voiceTranscriptionId={voiceTranscriptionId}
+          />
+        )}
 
         {showVoiceEmpty && <div aria-hidden className="min-h-[5rem]" />}
 
@@ -115,8 +125,25 @@ export function Confirmation({
   );
 }
 
-function VoicePanel({ poll }: { poll: PollResult }) {
-  if (poll.phase === "completed" && poll.transcript_text) {
+function VoicePanel({
+  poll,
+  voiceTranscriptionId,
+}: {
+  poll: PollResult;
+  voiceTranscriptionId?: string;
+}) {
+  if (poll.phase === "completed" && poll.transcript_text !== null) {
+    if (voiceTranscriptionId) {
+      return (
+        <EditableTranscript
+          transcriptionId={voiceTranscriptionId}
+          initialText={poll.transcript_text}
+        />
+      );
+    }
+    // Defensive fallback: no id threaded through (shouldn't happen in
+    // the live flow, but keeps the component safe to mount in tests
+    // or future surfaces).
     return (
       <div className="space-y-1.5">
         <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -155,16 +182,22 @@ function PhotoPanel({
   previewUrl: string;
   quickTag: QuickTag | null;
 }) {
+  const [lightboxOpen, setLightboxOpen] = React.useState(false);
   return (
     <div className="flex items-center gap-4">
-      <div className="size-20 rounded-lg overflow-hidden bg-muted ring-1 ring-border/60 shrink-0">
+      <button
+        type="button"
+        onClick={() => setLightboxOpen(true)}
+        className="size-20 rounded-lg overflow-hidden bg-muted ring-1 ring-border/60 shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+        aria-label="Open photo full screen"
+      >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={previewUrl}
           alt="Captured photo"
           className="w-full h-full object-cover"
         />
-      </div>
+      </button>
       <div className="flex-1">
         <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">
           Photo
@@ -180,6 +213,12 @@ function PhotoPanel({
           <span className="text-sm text-muted-foreground">No tag</span>
         )}
       </div>
+      <PhotoLightbox
+        open={lightboxOpen}
+        onOpenChange={setLightboxOpen}
+        src={previewUrl}
+        alt="Captured photo"
+      />
     </div>
   );
 }
