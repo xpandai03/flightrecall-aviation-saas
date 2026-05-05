@@ -54,10 +54,22 @@ export type MediaAsset = {
 export type IssueStatus = "active" | "resolved";
 export type IssueAction = "logged" | "still" | "fixed" | "skipped";
 
+export type IssueCategory =
+  | "engine_oil"
+  | "structural"
+  | "landing_gear"
+  | "fuel"
+  | "electrical"
+  | "flight_controls"
+  | "general_safety";
+
 export type IssueType = {
   id: string;
-  slug: QuickTag;
+  // M5 widened from QuickTag to string: the V1 keyword-detection
+  // taxonomy adds ~30 new slugs alongside the legacy 5 quick-tags.
+  slug: string;
   name: string;
+  category: IssueCategory | null;
   created_at: string;
 };
 
@@ -66,6 +78,9 @@ export type Issue = {
   aircraft_id: string;
   issue_type_id: string;
   description: string | null;
+  // M5: location pulled from voice transcripts via lib/issue-extraction.ts.
+  // NULL on legacy photo-quick-tag rows (no location signal at upload time).
+  location: string | null;
   current_status: IssueStatus;
   first_seen_at: string;
   last_seen_at: string;
@@ -87,6 +102,12 @@ export type IssueObservation = {
   issue_id: string;
   preflight_session_id: string;
   action: IssueAction;
+  // M5: per-observation evidence preserved separately from the rolled-
+  // up issues row. Populated by lib/issue-extraction.ts at logging time;
+  // NULL on legacy photo-quick-tag observations and on still/fixed/
+  // skipped actions (no transcript context).
+  raw_transcript: string | null;
+  summary: string | null;
   created_at: string;
 };
 
