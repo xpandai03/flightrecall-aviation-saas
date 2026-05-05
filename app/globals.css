@@ -37,6 +37,40 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+
+  /* ── FlightRecall dark palette (M5 dashboard redesign) ───────────── */
+  --bg-base:        #0A1628;
+  --bg-card:        #11203A;
+  --bg-card-glass:  rgba(20, 38, 66, 0.6);
+  --border-subtle:  rgba(125, 211, 222, 0.12);
+
+  --text-primary:   #F4F7FB;
+  --text-secondary: #8FA8C4;
+  --text-muted:     #5A7290;
+
+  --accent-mint:    #5EEAD4;
+  --accent-teal:    #2DD4BF;
+
+  --status-critical: #EF4444;
+  --status-warning:  #F59E0B;
+  --status-clear:    #10B981;
+
+  /* Re-bind shadcn semantic vars so the rest of the app inherits the
+     dark ground without per-component edits. Dashboard primitives use
+     the explicit FlightRecall tokens above; everything else (TopNav,
+     sonner, dropdowns, Sessions/Memory, etc.) inherits via shadcn. */
+  --background: var(--bg-base);
+  --foreground: var(--text-primary);
+  --card: var(--bg-card);
+  --card-foreground: var(--text-primary);
+  --popover: var(--bg-card);
+  --popover-foreground: var(--text-primary);
+  --primary: var(--accent-mint);
+  --primary-foreground: #062029;
+  --muted: var(--bg-card);
+  --muted-foreground: var(--text-secondary);
+  --border: var(--border-subtle);
+  --ring: var(--accent-teal);
 }
 
 .dark {
@@ -113,6 +147,32 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+
+  /* FlightRecall palette → Tailwind utilities */
+  --color-bg-base:       var(--bg-base);
+  --color-bg-card:       var(--bg-card);
+  --color-bg-card-glass: var(--bg-card-glass);
+  --color-border-subtle: var(--border-subtle);
+
+  --color-text-primary:   var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted:     var(--text-muted);
+
+  --color-accent-mint: var(--accent-mint);
+  --color-accent-teal: var(--accent-teal);
+
+  --color-status-critical: var(--status-critical);
+  --color-status-warning:  var(--status-warning);
+  --color-status-clear:    var(--status-clear);
+}
+
+@layer utilities {
+  .shadow-card-glow {
+    box-shadow:
+      0 0 0 1px rgba(94, 234, 212, 0.04),
+      0 1px 0 0 rgba(255, 255, 255, 0.03) inset,
+      0 8px 24px -12px rgba(8, 16, 32, 0.6);
+  }
 }
 
 @layer base {
