@@ -1,8 +1,9 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useParams, usePathname } from "next/navigation";
-import { Plane, User } from "lucide-react";
+import { User } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { AircraftPicker } from "@/components/aircraft/aircraft-picker";
@@ -45,13 +46,15 @@ export function TopNav({
     <header className="sticky top-0 z-40 w-full border-b border-border/60 bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-2 sm:gap-3 px-3 sm:px-6">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-          <Link href={homeHref} className="flex items-center gap-2 group shrink-0">
-            <span className="flex size-7 items-center justify-center rounded-md bg-gradient-to-br from-sky-400 to-cyan-500 text-white shadow-sm">
-              <Plane className="size-3.5 -rotate-45" />
-            </span>
-            <span className="hidden sm:inline text-sm font-semibold tracking-tight">
-              Flight Recall
-            </span>
+          <Link href={homeHref} className="flex items-center group shrink-0">
+            <Image
+              src="/flight-recall-logo.png"
+              alt="Flight Recall"
+              width={50}
+              height={40}
+              priority
+              className="h-7 sm:h-8 w-auto"
+            />
           </Link>
           {!onOnboarding && (
             <div className="min-w-0 shrink">
