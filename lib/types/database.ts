@@ -91,6 +91,10 @@ export type Issue = {
   resolved_at: string | null;
   created_at: string;
   updated_at: string;
+  /** M3 Item 3: short AI prose; null until generated or on failure. */
+  ai_summary: string | null;
+  /** Set when a summary attempt finishes (success or failure) or backfilled. */
+  ai_summary_updated_at: string | null;
 };
 
 export type IssueWithType = Issue & {
