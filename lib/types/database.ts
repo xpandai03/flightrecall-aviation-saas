@@ -48,6 +48,10 @@ export type MediaAsset = {
   upload_status: UploadStatus;
   quick_tag: QuickTag | null;
   issue_id: string | null;
+  /** Photo-only: optional voice note; points at transcript whose media_asset_id is companion audio. */
+  voice_transcription_id: string | null;
+  /** Photo-only: optional text note (max 500 chars app-side). Mutually exclusive with voice attachment. */
+  note_text: string | null;
   created_at: string;
 };
 
