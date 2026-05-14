@@ -1,7 +1,8 @@
 "use client"
 
 import * as React from "react"
-import { useParams } from "next/navigation"
+import { Suspense } from "react"
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation"
 import {
   AlertTriangle,
   Camera,
@@ -21,18 +22,89 @@ import {
 import { EditableTranscript } from "@/components/editable-transcript"
 import { PhotoLightbox } from "@/components/photo-lightbox"
 import { StatusChip } from "@/components/status-chip"
-import { getSession, useSessions } from "@/lib/api/sessions"
+import { adaptSession } from "@/lib/api/adapter"
+import { getSession, listAircraft, useSessions } from "@/lib/api/sessions"
 import type { Session } from "@/lib/mock-helpers"
 import type {
   MediaAssetWithSignedUrl,
   PreflightSessionDetail,
+  PreflightSessionWithMedia,
   StatusColor,
 } from "@/lib/types/database"
 
 export default function SessionsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="text-sm text-muted-foreground py-8">Loading sessions…</div>
+      }
+    >
+      <SessionsPageContent />
+    </Suspense>
+  )
+}
+
+function SessionsPageContent() {
   const params = useParams<{ id: string }>()
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
   const { sessions } = useSessions(params.id)
   const [active, setActive] = React.useState<Session | null>(null)
+
+  const sessionParam = searchParams.get("session")
+  const deepLinkHandled = React.useRef<string | null>(null)
+
+  React.useEffect(() => {
+    if (!sessionParam) {
+      deepLinkHandled.current = null
+      return
+    }
+
+    const fromList = sessions.find((s) => s.id === sessionParam)
+    if (fromList) {
+      if (deepLinkHandled.current !== sessionParam) {
+        setActive(fromList)
+        deepLinkHandled.current = sessionParam
+        router.replace(pathname, { scroll: false })
+      }
+      return
+    }
+
+    let cancelled = false
+    ;(async () => {
+      try {
+        const [acft, detail] = await Promise.all([
+          listAircraft(),
+          getSession(sessionParam),
+        ])
+        if (cancelled) return
+        const row = detail as unknown as PreflightSessionWithMedia
+        const s = adaptSession(row, acft, [row])
+        setActive(s)
+        deepLinkHandled.current = sessionParam
+        router.replace(pathname, { scroll: false })
+      } catch {
+        deepLinkHandled.current = sessionParam
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [sessionParam, sessions, router, pathname])
+
+  const onSheetOpenChange = React.useCallback(
+    (open: boolean) => {
+      if (!open) {
+        setActive(null)
+        if (searchParams.get("session")) {
+          router.replace(pathname, { scroll: false })
+        }
+      }
+    },
+    [router, pathname, searchParams],
+  )
 
   return (
     <div className="flex flex-col gap-6">
@@ -49,7 +121,7 @@ export default function SessionsPage() {
         ))}
       </div>
 
-      <Sheet open={!!active} onOpenChange={(o) => !o && setActive(null)}>
+      <Sheet open={!!active} onOpenChange={onSheetOpenChange}>
         <SheetContent className="sm:max-w-md overflow-y-auto">
           {active && <SessionDetail session={active} />}
         </SheetContent>

@@ -2,9 +2,7 @@
 
 import * as React from "react";
 import { AlertTriangle } from "lucide-react";
-import type { ActiveIssue, IssueAction } from "@/lib/types/database";
-
-const MAX_DISPLAYED = 5;
+import type { ActiveIssueEnriched, IssueAction } from "@/lib/types/database";
 
 type PendingAction = Exclude<IssueAction, "logged">;
 
@@ -14,13 +12,12 @@ export function CarryForward({
   disabled,
   totalActiveCount,
 }: {
-  issues: ActiveIssue[];
+  issues: ActiveIssueEnriched[];
   onAction: (issueId: string, action: PendingAction) => void;
   disabled?: boolean;
   totalActiveCount?: number;
 }) {
   if (issues.length === 0) return null;
-  const overflow = (totalActiveCount ?? issues.length) - issues.length;
   return (
     <div className="w-full max-w-md rounded-2xl border border-status-warning/40 bg-status-warning/10 px-4 py-4 shadow-card-glow">
       <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-status-warning mb-3">
@@ -28,7 +25,7 @@ export function CarryForward({
         Active issues ({totalActiveCount ?? issues.length})
       </div>
       <ul className="space-y-3">
-        {issues.slice(0, MAX_DISPLAYED).map((issue) => (
+        {issues.map((issue) => (
           <CarryForwardRow
             key={issue.id}
             issue={issue}
@@ -37,14 +34,6 @@ export function CarryForward({
           />
         ))}
       </ul>
-      {overflow > 0 && (
-        <div className="mt-3 text-[11px] text-text-muted text-right">
-          + {overflow} more in{" "}
-          <a className="text-accent-mint hover:underline" href="/memory">
-            /memory
-          </a>
-        </div>
-      )}
     </div>
   );
 }
@@ -54,7 +43,7 @@ function CarryForwardRow({
   onAction,
   disabled,
 }: {
-  issue: ActiveIssue;
+  issue: ActiveIssueEnriched;
   onAction: (issueId: string, action: PendingAction) => void;
   disabled?: boolean;
 }) {
