@@ -74,6 +74,31 @@ export async function PATCH(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const { data: before, error: beforeErr } = await supabase
+    .from("issues")
+    .select("issue_type_id, location")
+    .eq("id", idParsed.data)
+    .maybeSingle();
+
+  if (beforeErr) {
+    return NextResponse.json({ error: beforeErr.message }, { status: 500 });
+  }
+  if (!before) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  const patch = bodyParsed.data;
+  const normalizeLocation = (loc: string | null | undefined) => {
+    const t = loc?.trim() ?? "";
+    return t.length === 0 ? null : t;
+  };
+  const typeTouches =
+    patch.issue_type_id !== undefined &&
+    patch.issue_type_id !== before.issue_type_id;
+  const locationTouches =
+    patch.location !== undefined &&
+    normalizeLocation(patch.location) !== normalizeLocation(before.location);
+
   // No re-extraction. Just write the patch.
   const { data: updated, error: updateErr } = await supabase
     .from("issues")
@@ -104,6 +129,16 @@ export async function PATCH(
 
   if (!updated) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  if (typeTouches || locationTouches) {
+    const { generateIssueSummary } = await import("@/lib/issue-summarization");
+    void generateIssueSummary(supabase, updated.id).catch((err) => {
+      console.error("issues PATCH summary follow-up failed", {
+        issue_id: updated.id,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    });
   }
 
   return NextResponse.json(updated, { status: 200 });

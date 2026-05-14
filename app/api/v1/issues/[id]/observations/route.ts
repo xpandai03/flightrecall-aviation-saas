@@ -84,6 +84,14 @@ export async function POST(
       );
     }
     updatedIssue = u;
+
+    const { generateIssueSummary } = await import("@/lib/issue-summarization");
+    void generateIssueSummary(supabase, updatedIssue.id).catch((err) => {
+      console.error("issues observations still summary follow-up failed", {
+        issue_id: updatedIssue.id,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    });
   } else if (action === "fixed") {
     const { data: u, error: uErr } = await supabase
       .from("issues")
