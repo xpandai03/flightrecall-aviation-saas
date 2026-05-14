@@ -5,6 +5,7 @@ import {
   extractIssues,
   type ExtractedIssue,
 } from "@/lib/issue-extraction";
+import { generateIssueSummary } from "@/lib/issue-summarization";
 
 const BUCKET = "flight-recall-media";
 
@@ -360,4 +361,11 @@ async function persistOne(
   if (obsErr) {
     throw new Error(`observation insert: ${obsErr.message}`);
   }
+
+  void generateIssueSummary(supabase, issue_id).catch((err) => {
+    console.error("[extraction] issue summary follow-up failed", {
+      issue_id,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  });
 }
