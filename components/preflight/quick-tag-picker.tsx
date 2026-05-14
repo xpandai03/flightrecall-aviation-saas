@@ -18,6 +18,7 @@ export function QuickTagPicker({
   onCancel,
   saving,
   mode = "photo",
+  showActionFooter = true,
 }: {
   value: QuickTag | null;
   onChange: (next: QuickTag | null) => void;
@@ -25,6 +26,8 @@ export function QuickTagPicker({
   onCancel: () => void;
   saving?: boolean;
   mode?: "photo" | "voice";
+  /** When false, only the tag grid is shown (parent supplies outer actions). */
+  showActionFooter?: boolean;
 }) {
   const heading = mode === "voice" ? "Tag this voice note" : "Tag this photo";
   return (
@@ -54,19 +57,21 @@ export function QuickTagPicker({
         })}
       </div>
 
-      <div className="flex items-center gap-2 mt-2">
-        <Button
-          variant="outline"
-          onClick={onCancel}
-          className="rounded-full"
-          disabled={saving}
-        >
-          Cancel
-        </Button>
-        <Button onClick={onSave} className="rounded-full" disabled={saving}>
-          {saving ? "Saving…" : value ? "Save with tag" : "Save without tag"}
-        </Button>
-      </div>
+      {showActionFooter ? (
+        <div className="flex items-center gap-2 mt-2">
+          <Button
+            variant="outline"
+            onClick={onCancel}
+            className="rounded-full"
+            disabled={saving}
+          >
+            Cancel
+          </Button>
+          <Button onClick={onSave} className="rounded-full" disabled={saving}>
+            {saving ? "Saving…" : value ? "Save with tag" : "Save without tag"}
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }
