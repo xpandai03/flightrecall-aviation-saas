@@ -14,7 +14,10 @@ export function CosmeticIssuesBucket({
   disabled,
 }: {
   issues: ActiveIssueEnriched[];
-  onAction: (issueId: string, action: PendingAction) => void;
+  onAction: (
+    issueId: string,
+    action: PendingAction,
+  ) => void | Promise<void>;
   disabled?: boolean;
 }) {
   const [open, setOpen] = React.useState(false);
@@ -61,14 +64,21 @@ function CosmeticRow({
   disabled,
 }: {
   issue: ActiveIssueEnriched;
-  onAction: (issueId: string, action: PendingAction) => void;
+  onAction: (
+    issueId: string,
+    action: PendingAction,
+  ) => void | Promise<void>;
   disabled?: boolean;
 }) {
   const [busy, setBusy] = React.useState(false);
-  const handle = (action: PendingAction) => {
+  const handle = async (action: PendingAction) => {
     if (busy) return;
     setBusy(true);
-    onAction(issue.id, action);
+    try {
+      await Promise.resolve(onAction(issue.id, action));
+    } finally {
+      setBusy(false);
+    }
   };
   return (
     <li className="rounded-xl border border-border-subtle bg-bg-card px-3 py-3">
