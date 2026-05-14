@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { __testing__, extractIssues } from "@/lib/issue-extraction";
+import { getSeverityForSlug, SEVERITY_MAP } from "@/lib/issue-taxonomy";
 
 /**
  * Tests-as-spec for the V1 keyword extraction logic.
@@ -321,5 +322,44 @@ describe("extractIssues — drop unpaired short-keyword issues", () => {
       type_slug: "oil_leak",
       location: null,
     });
+  });
+});
+
+describe("issue taxonomy — severity_class (M3)", () => {
+  it("SEVERITY_MAP covers every slug the API can return (33 issue_types rows)", () => {
+    expect(Object.keys(SEVERITY_MAP)).toHaveLength(33);
+  });
+
+  it("every map entry is critical or cosmetic", () => {
+    for (const slug of Object.keys(SEVERITY_MAP)) {
+      expect(["critical", "cosmetic"]).toContain(SEVERITY_MAP[slug]);
+    }
+  });
+
+  it("spot-check canonical taxonomy + legacy quick-tag slugs", () => {
+    expect(getSeverityForSlug("oil_leak")).toBe("critical");
+    expect(getSeverityForSlug("crack")).toBe("critical");
+    expect(getSeverityForSlug("corrosion")).toBe("critical");
+    expect(getSeverityForSlug("flat_tire")).toBe("critical");
+    expect(getSeverityForSlug("low_voltage")).toBe("critical");
+    expect(getSeverityForSlug("stiff_control")).toBe("critical");
+    expect(getSeverityForSlug("vibration")).toBe("critical");
+    expect(getSeverityForSlug("rough_engine")).toBe("critical");
+
+    expect(getSeverityForSlug("dent")).toBe("cosmetic");
+    expect(getSeverityForSlug("scratch")).toBe("cosmetic");
+    expect(getSeverityForSlug("loose_panel")).toBe("cosmetic");
+    expect(getSeverityForSlug("tire_worn")).toBe("cosmetic");
+    expect(getSeverityForSlug("tire_low")).toBe("cosmetic");
+
+    expect(getSeverityForSlug("oil")).toBe("critical");
+    expect(getSeverityForSlug("tire")).toBe("cosmetic");
+  });
+
+  it("SEVERITY_MAP includes every slug referenced by ISSUE_KEYWORDS", () => {
+    const slugs = new Set(Object.values(__testing__.ISSUE_KEYWORDS));
+    for (const slug of slugs) {
+      expect(SEVERITY_MAP[slug]).toBeDefined();
+    }
   });
 });
