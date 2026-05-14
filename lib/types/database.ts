@@ -63,6 +63,8 @@ export type IssueCategory =
   | "flight_controls"
   | "general_safety";
 
+export type IssueSeverityClass = "critical" | "cosmetic";
+
 export type IssueType = {
   id: string;
   // M5 widened from QuickTag to string: the V1 keyword-detection
@@ -70,6 +72,8 @@ export type IssueType = {
   slug: string;
   name: string;
   category: IssueCategory | null;
+  /** Type-level M3 bucket; not recency-based (see lib/issue-derivation IssueSeverity). */
+  severity_class: IssueSeverityClass;
   created_at: string;
 };
 
