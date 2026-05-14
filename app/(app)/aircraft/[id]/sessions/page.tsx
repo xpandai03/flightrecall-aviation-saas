@@ -8,7 +8,9 @@ import {
   Camera,
   CheckCircle2,
   ChevronRight,
+  FileText,
   ImageOff,
+  Mic,
   Plane,
 } from "lucide-react"
 
@@ -24,12 +26,17 @@ import { PhotoLightbox } from "@/components/photo-lightbox"
 import { StatusChip } from "@/components/status-chip"
 import { adaptSession } from "@/lib/api/adapter"
 import { getSession, listAircraft, useSessions } from "@/lib/api/sessions"
+import {
+  isCompanionPhotoVoiceAudio,
+  isPhotoAttachedTranscript,
+} from "@/lib/media-attachment-filters"
 import type { Session } from "@/lib/mock-helpers"
 import type {
   MediaAssetWithSignedUrl,
   PreflightSessionDetail,
   PreflightSessionWithMedia,
   StatusColor,
+  VoiceTranscription,
 } from "@/lib/types/database"
 
 export default function SessionsPage() {
@@ -222,14 +229,29 @@ function SessionDetail({ session }: { session: Session }) {
 
   const photoAssets = (detail?.media_assets ?? []).filter(
     (a) => a.media_type === "photo",
-  )
-  const audioAssets = (detail?.media_assets ?? []).filter(
-    (a) => a.media_type === "audio",
-  )
+  );
+  const allMedia = detail?.media_assets ?? [];
+  const allTranscripts = detail?.voice_transcriptions ?? [];
+  const filterRows = allMedia.map((m) => ({
+    id: m.id,
+    media_type: m.media_type,
+    voice_transcription_id: m.voice_transcription_id ?? null,
+  }));
+  const transcriptRows = allTranscripts.map((t) => ({
+    id: t.id,
+    media_asset_id: t.media_asset_id,
+  }));
+  const audioAssets = allMedia.filter(
+    (a) =>
+      a.media_type === "audio" &&
+      !isCompanionPhotoVoiceAudio(a.id, filterRows, transcriptRows),
+  );
   const editableTranscripts = (detail?.voice_transcriptions ?? []).filter(
     (t) =>
-      t.transcription_status === "completed" && t.transcript_text !== null,
-  )
+      t.transcription_status === "completed" &&
+      t.transcript_text !== null &&
+      !isPhotoAttachedTranscript(t.id, filterRows),
+  );
 
   return (
     <>
@@ -352,7 +374,11 @@ function SessionDetail({ session }: { session: Session }) {
             ) : (
               <div className="grid grid-cols-3 gap-2">
                 {photoAssets.map((asset) => (
-                  <PhotoTile key={asset.id} asset={asset} />
+                  <PhotoTile
+                    key={asset.id}
+                    asset={asset}
+                    transcripts={allTranscripts}
+                  />
                 ))}
               </div>
             )}
@@ -393,8 +419,33 @@ function statusLabel(
   return `${fallbackIssueCount} ${fallbackIssueCount === 1 ? "finding" : "findings"}`
 }
 
-function PhotoTile({ asset }: { asset: MediaAssetWithSignedUrl }) {
+function PhotoTile({
+  asset,
+  transcripts,
+}: {
+  asset: MediaAssetWithSignedUrl
+  transcripts: VoiceTranscription[]
+}) {
   const [open, setOpen] = React.useState(false)
+  const [expanded, setExpanded] = React.useState(false)
+
+  const note = asset.note_text?.trim() ?? ""
+  const hasText = note.length > 0
+  const vt = asset.voice_transcription_id
+    ? transcripts.find((t) => t.id === asset.voice_transcription_id)
+    : undefined
+  const voiceBody =
+    vt?.transcription_status === "completed" && vt.transcript_text
+      ? vt.transcript_text.trim()
+      : asset.voice_transcription_id
+        ? null
+        : null
+
+  const attachmentLabel = hasText ? "Note" : asset.voice_transcription_id ? "Voice note" : null
+  const rawBody = hasText ? note : voiceBody
+  const truncated =
+    rawBody && rawBody.length > 200 ? rawBody.slice(0, 200) + "…" : rawBody
+  const showExpand = Boolean(rawBody && rawBody.length > 200)
 
   if (!asset.signed_url) {
     return (
@@ -405,11 +456,11 @@ function PhotoTile({ asset }: { asset: MediaAssetWithSignedUrl }) {
     )
   }
   return (
-    <>
+    <div className="space-y-1">
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="relative aspect-square rounded-lg overflow-hidden ring-1 ring-border/60 bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+        className="relative aspect-square w-full rounded-lg overflow-hidden ring-1 ring-border/60 bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
         aria-label={`Open ${asset.file_name ?? "preflight photo"} full screen`}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -424,14 +475,49 @@ function PhotoTile({ asset }: { asset: MediaAssetWithSignedUrl }) {
             {asset.quick_tag}
           </span>
         )}
+        {hasText && (
+          <span className="absolute bottom-1 right-1 rounded-full bg-white/90 p-1 ring-1 ring-border/60" title="Text note">
+            <FileText className="size-3 text-slate-700" aria-hidden />
+          </span>
+        )}
+        {!hasText && asset.voice_transcription_id && (
+          <span className="absolute bottom-1 right-1 rounded-full bg-white/90 p-1 ring-1 ring-border/60" title="Voice note">
+            <Mic className="size-3 text-slate-700" aria-hidden />
+          </span>
+        )}
       </button>
+      {attachmentLabel && (
+        <div className="text-[11px] text-muted-foreground px-0.5">
+          <span className="font-medium text-foreground/80">{attachmentLabel}: </span>
+          {hasText ? (
+            <span className="whitespace-pre-wrap text-foreground/90">
+              {expanded ? note : truncated}
+            </span>
+          ) : voiceBody ? (
+            <span className="whitespace-pre-wrap text-foreground/90">
+              {expanded ? voiceBody : truncated}
+            </span>
+          ) : (
+            <span className="italic">Voice note (transcription unavailable)</span>
+          )}
+          {showExpand && (
+            <button
+              type="button"
+              className="block mt-0.5 text-sky-600 hover:underline"
+              onClick={() => setExpanded((e) => !e)}
+            >
+              {expanded ? "Show less" : "Show more"}
+            </button>
+          )}
+        </div>
+      )}
       <PhotoLightbox
         open={open}
         onOpenChange={setOpen}
         src={asset.signed_url}
         alt={asset.file_name ?? "Preflight photo"}
       />
-    </>
+    </div>
   )
 }
 
