@@ -10,6 +10,7 @@ import {
   Plane,
 } from "lucide-react";
 
+import { ActiveIssuesSection } from "@/components/memory/active-issues-section";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { listAircraft, listSessions } from "@/lib/api/sessions";
@@ -101,6 +102,15 @@ export default function MemoryPage() {
         </div>
       )}
 
+      {/*
+        Two issue surfaces on Memory (by design):
+        - **All Active Issues** (above): enriched open issues from the active-issues
+          API — full list, severity split, inline Still / Fixed / Skip. Management.
+        - **Issues** tab (below): `fetchAircraftIssues` archive — active + resolved,
+          type + date only; no actions. Historical reference.
+      */}
+      {aircraftId ? <ActiveIssuesSection aircraftId={aircraftId} /> : null}
+
       {loading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="size-4 animate-spin" />
@@ -168,6 +178,7 @@ function SessionsList({
   );
 }
 
+/** Issues tab: chronological archive from `fetchAircraftIssues` (not the active-issues API). */
 function IssuesList({ issues }: { issues: AircraftIssuesResponse }) {
   if (issues.active.length === 0 && issues.resolved.length === 0) {
     return <p className="text-sm text-muted-foreground">No issues tracked yet.</p>;
