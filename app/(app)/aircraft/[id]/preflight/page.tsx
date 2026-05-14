@@ -12,6 +12,9 @@ import {
   PhotoPreview,
 } from "@/components/preflight/photo-capture";
 import { QuickTagPicker } from "@/components/preflight/quick-tag-picker";
+import { PhotoAttachmentChooser } from "@/components/preflight/photo-attachment-chooser";
+import { PhotoVoiceRecorder } from "@/components/preflight/photo-voice-recorder";
+import { PhotoNoteModal } from "@/components/preflight/photo-note-modal";
 import { Confirmation } from "@/components/preflight/confirmation";
 import { CarryForward } from "@/components/preflight/carry-forward";
 import { CosmeticIssuesBucket } from "@/components/preflight/cosmetic-issues-bucket";
@@ -34,6 +37,7 @@ import {
   useAircraftStatus,
 } from "@/lib/api/issues";
 import { useTranscriptionPoll } from "@/hooks/use-transcription-poll";
+import { isCompanionPhotoVoiceAudio } from "@/lib/media-attachment-filters";
 import type {
   Aircraft,
   InputType,
@@ -46,22 +50,28 @@ import type { RecorderResult } from "@/hooks/use-media-recorder";
 
 type PendingAction = Exclude<IssueAction, "logged">;
 
-// State machine. Per-input flows go through capture → tagging → uploading
-// → confirming, and Confirmation's Done button now returns to 'idle' (not
-// dashboard). The session is created on the first input's save and reused
-// for every subsequent input until the user taps End Preflight.
+type PhotoStaged =
+  | null
+  | { kind: "voice"; blob: Blob; mimeType: string }
+  | { kind: "text"; text: string };
+
+type PhotoFlowBase = {
+  file: File;
+  previewUrl: string;
+  quickTag: QuickTag | null;
+  staged: PhotoStaged;
+};
+
+// State machine. Photo path: capture → photo_captured (tag + attachment) →
+// uploading → confirming → idle. Session is created on first save.
 type Step =
   | { kind: "idle" }
   | { kind: "recording" }
   | { kind: "capturing" }
   | { kind: "no_issues_capturing" }
   | { kind: "no_issues_preview"; file: File; previewUrl: string }
-  | {
-      kind: "tagging";
-      file: File;
-      previewUrl: string;
-      quickTag: QuickTag | null;
-    }
+  | { kind: "photo_captured"; file: File; previewUrl: string; quickTag: QuickTag | null; staged: PhotoStaged }
+  | { kind: "photo_attaching_voice"; base: PhotoFlowBase }
   | {
       kind: "voice_tagging";
       blob: Blob;
@@ -74,7 +84,14 @@ type Step =
       session: PreflightSession;
       mode: InputType;
       voiceTranscriptionId?: string;
-      photo?: { previewUrl: string; quickTag: QuickTag | null };
+      photo?: {
+        previewUrl: string;
+        quickTag: QuickTag | null;
+        mediaAssetId?: string;
+        attachment?:
+          | { kind: "text"; text: string }
+          | { kind: "voice"; voiceTranscriptionId: string };
+      };
     }
   | { kind: "finalizing" };
 
@@ -119,9 +136,23 @@ function inputsFromResumedSession(
     transcriptByMediaId.set(t.media_asset_id, t);
   }
 
+  const mediaList = session.media_assets ?? [];
+  const filterRows = mediaList.map((m) => ({
+    id: m.id,
+    media_type: m.media_type,
+    voice_transcription_id: m.voice_transcription_id ?? null,
+  }));
+  const transcriptRows = transcripts.map((t) => ({
+    id: t.id,
+    media_asset_id: t.media_asset_id,
+  }));
+
   const items: { sortKey: string; input: InProgressInput }[] = [];
-  for (const m of session.media_assets ?? []) {
+  for (const m of mediaList) {
     if (m.media_type === "audio") {
+      if (isCompanionPhotoVoiceAudio(m.id, filterRows, transcriptRows)) {
+        continue;
+      }
       const t = transcriptByMediaId.get(m.id);
       const completed = t?.transcription_status === "completed";
       const summary =
@@ -141,12 +172,28 @@ function inputsFromResumedSession(
       });
     } else if (m.media_type === "photo") {
       const isChecklist = session.input_type === "no_issues";
+      const note = m.note_text?.trim() ?? "";
+      const hasText = note.length > 0;
+      const hasVoice = Boolean(m.voice_transcription_id);
+      let attachment: "voice" | "text" | null = null;
+      if (hasText) attachment = "text";
+      else if (hasVoice) attachment = "voice";
+      const vt = m.voice_transcription_id
+        ? transcripts.find((t) => t.id === m.voice_transcription_id)
+        : undefined;
+      const voicePending =
+        attachment === "voice" &&
+        !!vt &&
+        vt.transcription_status !== "completed" &&
+        vt.transcription_status !== "failed";
       items.push({
         sortKey: m.created_at,
         input: {
           key: m.id,
           kind: isChecklist ? "no_issues" : "photo",
           summary: quickTagLabel(m.quick_tag),
+          attachment,
+          pending: voicePending,
         },
       });
     }
@@ -169,6 +216,7 @@ export default function PreflightPage() {
   const [inProgressSession, setInProgressSession] =
     React.useState<PreflightSession | null>(null);
   const [inputsLogged, setInputsLogged] = React.useState<InProgressInput[]>([]);
+  const [textNoteOpen, setTextNoteOpen] = React.useState(false);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -225,7 +273,11 @@ export default function PreflightPage() {
     useAircraftStatus(aircraftId);
 
   const revokePreviewUrls = React.useCallback((s: Step) => {
-    if (s.kind === "tagging") URL.revokeObjectURL(s.previewUrl);
+    if (s.kind === "photo_captured" || s.kind === "photo_attaching_voice") {
+      URL.revokeObjectURL(
+        s.kind === "photo_captured" ? s.previewUrl : s.base.previewUrl,
+      );
+    }
     if (s.kind === "no_issues_preview") URL.revokeObjectURL(s.previewUrl);
     if (s.kind === "confirming" && s.photo)
       URL.revokeObjectURL(s.photo.previewUrl);
@@ -234,6 +286,7 @@ export default function PreflightPage() {
   // Cancellation path — discard any in-flight capture and return to idle.
   // Does NOT touch the in-progress session; that lives across cancellations.
   const reset = React.useCallback(() => {
+    setTextNoteOpen(false);
     setStep((prev) => {
       revokePreviewUrls(prev);
       return { kind: "idle" };
@@ -342,32 +395,74 @@ export default function PreflightPage() {
   };
 
   const handlePhotoCaptured = (file: File, previewUrl: string) => {
-    setStep({ kind: "tagging", file, previewUrl, quickTag: null });
+    setTextNoteOpen(false);
+    setStep({
+      kind: "photo_captured",
+      file,
+      previewUrl,
+      quickTag: null,
+      staged: null,
+    });
   };
 
-  const handlePhotoSave = async () => {
-    if (step.kind !== "tagging") return;
+  const handlePhotoFlowDone = async () => {
+    if (step.kind !== "photo_captured") return;
     if (!defaultAircraft) return;
-    const { file, previewUrl, quickTag } = step;
+    const { file, previewUrl, quickTag, staged } = step;
+    setTextNoteOpen(false);
     setStep({ kind: "uploading", mode: "photo" });
     try {
       const session = await ensureSession("photo");
       const safeName =
         file.name && file.name.length > 0 ? file.name : "photo.jpg";
-      await uploadMedia({
+
+      const outcomePhoto = await uploadMedia({
         preflight_session_id: session.id,
         blob: file,
         media_type: "photo",
         file_name: safeName,
         mime_type: file.type || "image/jpeg",
         quick_tag: quickTag ?? undefined,
+        note_text: staged?.kind === "text" ? staged.text : undefined,
       });
+
+      let attachVoiceId: string | undefined;
+      if (staged?.kind === "voice") {
+        try {
+          const { name: audioName } = audioFileNameForMime(staged.mimeType);
+          const audioOutcome = await uploadMedia({
+            preflight_session_id: session.id,
+            blob: staged.blob,
+            media_type: "audio",
+            file_name: audioName,
+            mime_type: staged.mimeType,
+            photo_attachment_media_id: outcomePhoto.media_asset_id,
+          });
+          attachVoiceId = audioOutcome.voice_transcription_id;
+        } catch {
+          toast.error(
+            "Couldn't upload audio. Photo saved without voice note.",
+          );
+        }
+      }
+
       toast.success("Saved", { description: "Photo logged to this session." });
+
       setStep({
         kind: "confirming",
         session,
         mode: "photo",
-        photo: { previewUrl, quickTag },
+        photo: {
+          previewUrl,
+          quickTag,
+          mediaAssetId: outcomePhoto.media_asset_id,
+          attachment:
+            attachVoiceId !== undefined
+              ? { kind: "voice", voiceTranscriptionId: attachVoiceId }
+              : staged?.kind === "text"
+                ? { kind: "text", text: staged.text }
+                : undefined,
+        },
       });
     } catch (err) {
       toast.error("Couldn't save photo", {
@@ -391,7 +486,7 @@ export default function PreflightPage() {
       const session = await ensureSession("no_issues");
       const safeName =
         file.name && file.name.length > 0 ? file.name : "checklist.jpg";
-      await uploadMedia({
+      const outcome = await uploadMedia({
         preflight_session_id: session.id,
         blob: file,
         media_type: "photo",
@@ -405,7 +500,11 @@ export default function PreflightPage() {
         kind: "confirming",
         session,
         mode: "no_issues",
-        photo: { previewUrl, quickTag: null },
+        photo: {
+          previewUrl,
+          quickTag: null,
+          mediaAssetId: outcome.media_asset_id,
+        },
       });
     } catch (err) {
       toast.error("Couldn't save preflight", {
@@ -416,9 +515,23 @@ export default function PreflightPage() {
     }
   };
 
-  const sessionForPoll =
-    step.kind === "confirming" && step.mode === "voice" ? step.session.id : null;
-  const poll = useTranscriptionPoll(sessionForPoll, sessionForPoll !== null);
+  const pollSessionId =
+    step.kind === "confirming" ? step.session.id : null;
+  const pollTranscriptionId =
+    step.kind === "confirming" && step.mode === "voice"
+      ? (step.voiceTranscriptionId ?? undefined)
+      : step.kind === "confirming" &&
+          step.mode === "photo" &&
+          step.photo?.attachment?.kind === "voice"
+        ? step.photo.attachment.voiceTranscriptionId
+        : undefined;
+
+  const pollOpts = React.useMemo(
+    () => ({ transcriptionId: pollTranscriptionId }),
+    [pollTranscriptionId],
+  );
+
+  const poll = useTranscriptionPoll(pollSessionId, pollSessionId !== null, pollOpts);
 
   /**
    * Confirmation Done — append the just-saved input to the in-progress
@@ -440,14 +553,30 @@ export default function PreflightPage() {
           pending: !transcript,
         };
       } else if (prev.mode === "photo") {
+        const p = prev.photo;
+        const transcriptReady =
+          poll?.phase === "completed" && poll.transcript_text;
+        const voicePending =
+          p?.attachment?.kind === "voice" &&
+          poll &&
+          poll.phase !== "completed" &&
+          poll.phase !== "failed" &&
+          poll.phase !== "timed_out";
         entry = {
-          key: `photo-${Date.now()}`,
+          key: p?.mediaAssetId ?? `photo-${Date.now()}`,
           kind: "photo",
-          summary: quickTagLabel(prev.photo?.quickTag ?? null),
+          summary: quickTagLabel(p?.quickTag ?? null),
+          attachment:
+            p?.attachment?.kind === "voice"
+              ? "voice"
+              : p?.attachment?.kind === "text"
+                ? "text"
+                : null,
+          pending: Boolean(voicePending && !transcriptReady),
         };
       } else {
         entry = {
-          key: `no-issues-${Date.now()}`,
+          key: prev.photo?.mediaAssetId ?? `no-issues-${Date.now()}`,
           kind: "no_issues",
           summary: null,
         };
@@ -595,26 +724,89 @@ export default function PreflightPage() {
         </div>
       )}
 
-      {step.kind === "tagging" && (
+      {step.kind === "photo_captured" && (
         <div className="flex flex-col items-center gap-6 w-full">
           <PhotoPreview
             previewUrl={step.previewUrl}
             onRetake={() => {
               URL.revokeObjectURL(step.previewUrl);
+              setTextNoteOpen(false);
               setStep({ kind: "capturing" });
             }}
           />
           <QuickTagPicker
+            showActionFooter={false}
             value={step.quickTag}
             onChange={(next) =>
               setStep((prev) =>
-                prev.kind === "tagging" ? { ...prev, quickTag: next } : prev,
+                prev.kind === "photo_captured"
+                  ? { ...prev, quickTag: next }
+                  : prev,
               )
             }
-            onSave={handlePhotoSave}
+            onSave={() => {}}
             onCancel={reset}
           />
+          <PhotoAttachmentChooser
+            onVoice={() =>
+              setStep((prev) =>
+                prev.kind === "photo_captured"
+                  ? {
+                      kind: "photo_attaching_voice",
+                      base: {
+                        file: prev.file,
+                        previewUrl: prev.previewUrl,
+                        quickTag: prev.quickTag,
+                        staged: prev.staged,
+                      },
+                    }
+                  : prev,
+              )
+            }
+            onText={() => setTextNoteOpen(true)}
+            onDone={() => {
+              void handlePhotoFlowDone();
+            }}
+          />
+          <Button variant="outline" onClick={reset} className="rounded-full">
+            Cancel
+          </Button>
+          <PhotoNoteModal
+            open={textNoteOpen}
+            onOpenChange={setTextNoteOpen}
+            onSave={(text) =>
+              setStep((prev) =>
+                prev.kind === "photo_captured"
+                  ? { ...prev, staged: { kind: "text", text } }
+                  : prev,
+              )
+            }
+          />
         </div>
+      )}
+
+      {step.kind === "photo_attaching_voice" && (
+        <PhotoVoiceRecorder
+          onComplete={(result) =>
+            setStep({
+              kind: "photo_captured",
+              file: step.base.file,
+              previewUrl: step.base.previewUrl,
+              quickTag: step.base.quickTag,
+              staged: {
+                kind: "voice",
+                blob: result.blob,
+                mimeType: result.mimeType,
+              },
+            })
+          }
+          onCancelBack={() =>
+            setStep({
+              kind: "photo_captured",
+              ...step.base,
+            })
+          }
+        />
       )}
 
       {step.kind === "uploading" && (
@@ -630,7 +822,13 @@ export default function PreflightPage() {
           aircraftTail={aircraftTail}
           createdAtIso={step.session.created_at}
           statusColor={step.session.status_color}
-          poll={step.mode === "voice" ? poll : undefined}
+          poll={
+            step.mode === "voice" ||
+            (step.mode === "photo" &&
+              step.photo?.attachment?.kind === "voice")
+              ? poll
+              : undefined
+          }
           voiceTranscriptionId={
             step.mode === "voice" ? step.voiceTranscriptionId : undefined
           }

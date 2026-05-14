@@ -1,6 +1,6 @@
 "use client";
 
-import { Camera, CheckCircle2, Loader2, Mic } from "lucide-react";
+import { Camera, CheckCircle2, FileText, Loader2, Mic } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -12,6 +12,8 @@ export type InProgressInput = {
   summary?: string | null;
   /** When true, render a small spinner next to the summary (used for voice transcripts in flight). */
   pending?: boolean;
+  /** Photo row: optional attachment indicator. */
+  attachment?: "voice" | "text" | null;
 };
 
 const KIND_ICON = {
@@ -65,6 +67,17 @@ export function InProgressList({ inputs }: { inputs: InProgressInput[] }) {
                   </div>
                 )}
               </div>
+              {input.attachment === "voice" ? (
+                <Mic
+                  className="size-4 shrink-0 text-text-muted"
+                  aria-label="Voice note attached"
+                />
+              ) : input.attachment === "text" ? (
+                <FileText
+                  className="size-4 shrink-0 text-text-muted"
+                  aria-label="Text note attached"
+                />
+              ) : null}
             </li>
           );
         })}

@@ -36,7 +36,14 @@ export type ConfirmationProps = {
   voiceTranscriptionId?: string;
   sessionId?: string;
   // photo-only
-  photo?: { previewUrl: string; quickTag: QuickTag | null };
+  photo?: {
+    previewUrl: string;
+    quickTag: QuickTag | null;
+    mediaAssetId?: string;
+    attachment?:
+      | { kind: "text"; text: string }
+      | { kind: "voice"; voiceTranscriptionId: string };
+  };
   onDone: () => void;
 };
 
@@ -104,6 +111,7 @@ export function Confirmation({
   const showExtractedPanel =
     isVoice && poll?.phase === "completed" && Boolean(sessionId);
 
+
   return (
     <div className="w-full max-w-md flex flex-col items-center gap-6">
       <div className="flex flex-col items-center gap-2 text-center">
@@ -135,7 +143,12 @@ export function Confirmation({
         {showVoiceEmpty && <div aria-hidden className="min-h-[5rem]" />}
 
         {inputType === "photo" && photo && (
-          <PhotoPanel previewUrl={photo.previewUrl} quickTag={photo.quickTag} />
+          <PhotoPanel
+            previewUrl={photo.previewUrl}
+            quickTag={photo.quickTag}
+            attachment={photo.attachment}
+            poll={poll}
+          />
         )}
       </div>
 
@@ -360,47 +373,98 @@ function ExtractedIssuesPanel({ sessionId }: { sessionId: string }) {
 function PhotoPanel({
   previewUrl,
   quickTag,
+  attachment,
+  poll,
 }: {
   previewUrl: string;
   quickTag: QuickTag | null;
+  attachment?:
+    | { kind: "text"; text: string }
+    | { kind: "voice"; voiceTranscriptionId: string };
+  poll?: PollResult;
 }) {
   const [lightboxOpen, setLightboxOpen] = React.useState(false);
+
+  const voicePollBusy =
+    attachment?.kind === "voice" &&
+    poll &&
+    !(
+      poll.phase === "completed" ||
+      poll.phase === "failed" ||
+      poll.phase === "timed_out"
+    );
+
   return (
-    <div className="flex items-center gap-4">
-      <button
-        type="button"
-        onClick={() => setLightboxOpen(true)}
-        className="size-20 rounded-lg overflow-hidden bg-muted ring-1 ring-border/60 shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
-        aria-label="Open photo full screen"
-      >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
+    <div className="space-y-3">
+      <div className="flex items-center gap-4">
+        <button
+          type="button"
+          onClick={() => setLightboxOpen(true)}
+          className="size-20 rounded-lg overflow-hidden bg-muted ring-1 ring-border/60 shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500"
+          aria-label="Open photo full screen"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={previewUrl}
+            alt="Captured photo"
+            className="w-full h-full object-cover"
+          />
+        </button>
+        <div className="flex-1">
+          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">
+            Photo
+          </div>
+          {quickTag ? (
+            <Badge
+              variant="secondary"
+              className="bg-sky-50 text-sky-700 border border-sky-200 capitalize"
+            >
+              {quickTag}
+            </Badge>
+          ) : (
+            <span className="text-sm text-muted-foreground">No tag</span>
+          )}
+        </div>
+        <PhotoLightbox
+          open={lightboxOpen}
+          onOpenChange={setLightboxOpen}
           src={previewUrl}
           alt="Captured photo"
-          className="w-full h-full object-cover"
         />
-      </button>
-      <div className="flex-1">
-        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">
-          Photo
-        </div>
-        {quickTag ? (
-          <Badge
-            variant="secondary"
-            className="bg-sky-50 text-sky-700 border border-sky-200 capitalize"
-          >
-            {quickTag}
-          </Badge>
-        ) : (
-          <span className="text-sm text-muted-foreground">No tag</span>
-        )}
       </div>
-      <PhotoLightbox
-        open={lightboxOpen}
-        onOpenChange={setLightboxOpen}
-        src={previewUrl}
-        alt="Captured photo"
-      />
+
+      {attachment?.kind === "text" && (
+        <div className="rounded-lg border border-border/60 bg-muted/40 px-3 py-2">
+          <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground mb-1">
+            Note
+          </div>
+          <p className="text-sm text-foreground whitespace-pre-wrap">
+            {attachment.text}
+          </p>
+        </div>
+      )}
+
+      {attachment?.kind === "voice" && (
+        <div className="rounded-lg border border-border/60 bg-muted/40 px-3 py-2 space-y-2">
+          <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            Voice note
+          </div>
+          {voicePollBusy ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin shrink-0" aria-hidden />
+              Transcribing…
+            </div>
+          ) : poll?.phase === "completed" && poll.transcript_text ? (
+            <p className="text-sm text-foreground whitespace-pre-wrap">
+              {poll.transcript_text}
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground italic">
+              Voice note (transcription unavailable)
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
