@@ -1,5 +1,8 @@
+"use client";
+
 import Link from "next/link";
-import { AlertTriangle, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { AlertTriangle, Loader2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import type { ActiveIssueEnriched } from "@/lib/types/database";
@@ -24,6 +27,79 @@ function UrgencyBadge({ accent }: { accent: DashboardUrgencyAccent }) {
     >
       <AlertTriangle className="size-3.5" />
     </span>
+  );
+}
+
+function IssueAiSummaryBlock({ issue }: { issue: ActiveIssueEnriched }) {
+  const [aiSummary, setAiSummary] = useState(issue.ai_summary);
+  const [aiUpdatedAt, setAiUpdatedAt] = useState(issue.ai_summary_updated_at);
+
+  useEffect(() => {
+    setAiSummary(issue.ai_summary);
+    setAiUpdatedAt(issue.ai_summary_updated_at);
+  }, [issue.id, issue.ai_summary, issue.ai_summary_updated_at]);
+
+  useEffect(() => {
+    if (aiSummary != null) return;
+    if (aiUpdatedAt != null) return;
+
+    const started = Date.now();
+    const id = issue.id;
+    let interval: ReturnType<typeof setInterval>;
+    const tick = async () => {
+      if (Date.now() - started >= 30_000) {
+        clearInterval(interval);
+        return;
+      }
+      try {
+        const r = await fetch(`/api/v1/issues/${id}/summary`);
+        if (!r.ok) return;
+        const j = (await r.json()) as {
+          ai_summary: string | null;
+          ai_summary_updated_at: string | null;
+        };
+        if (j.ai_summary) {
+          setAiSummary(j.ai_summary);
+          setAiUpdatedAt(j.ai_summary_updated_at);
+          clearInterval(interval);
+        } else if (j.ai_summary_updated_at) {
+          setAiUpdatedAt(j.ai_summary_updated_at);
+          clearInterval(interval);
+        }
+      } catch {
+        // transient network errors — next tick retries until cap
+      }
+    };
+    void tick();
+    interval = setInterval(tick, 2000);
+    return () => clearInterval(interval);
+  }, [issue.id, aiSummary, aiUpdatedAt]);
+
+  if (aiSummary) {
+    return (
+      <div className="rounded-md bg-bg-elevated/60 border border-border-subtle px-3 py-2 space-y-1">
+        <p className="text-xs text-text-primary leading-relaxed">{aiSummary}</p>
+        <p className="text-[10px] text-text-muted">AI-generated summary</p>
+      </div>
+    );
+  }
+
+  if (!aiUpdatedAt) {
+    return (
+      <div
+        className="flex items-center gap-2 text-xs text-text-muted"
+        aria-live="polite"
+      >
+        <Loader2 className="size-3.5 animate-spin shrink-0" aria-hidden />
+        <span>Generating summary…</span>
+      </div>
+    );
+  }
+
+  return (
+    <p className="text-xs text-text-muted leading-relaxed">
+      No short summary yet. Recurrence and recency below stay current.
+    </p>
   );
 }
 
@@ -64,6 +140,9 @@ export function IssueQuickView({
           <X className="size-4" />
         </button>
       </div>
+
+      <IssueAiSummaryBlock issue={issue} />
+
       <dl className="grid gap-1 text-xs text-text-secondary">
         <div>
           <dt className="inline text-text-muted">Recurrence: </dt>
