@@ -10,7 +10,12 @@ export type CompleteResponse = MediaAsset & {
 
 export async function completeMediaUpload(
   mediaAssetId: string,
-  body: { file_size_bytes?: number; quick_tag?: QuickTag } = {},
+  body: {
+    file_size_bytes?: number;
+    quick_tag?: QuickTag;
+    note_text?: string;
+    photo_attachment_media_id?: string;
+  } = {},
 ): Promise<CompleteResponse> {
   const r = await fetch(`/api/v1/media/${mediaAssetId}/complete`, {
     method: "POST",
@@ -45,6 +50,8 @@ export async function uploadMedia(args: {
   file_name: string;
   mime_type: string;
   quick_tag?: QuickTag;
+  note_text?: string;
+  photo_attachment_media_id?: string;
 }): Promise<UploadOutcome> {
   const minted = await requestUploadUrl({
     preflight_session_id: args.preflight_session_id,
@@ -66,6 +73,8 @@ export async function uploadMedia(args: {
   const completed = await completeMediaUpload(minted.media_asset_id, {
     file_size_bytes: args.blob.size,
     quick_tag: args.quick_tag,
+    note_text: args.note_text,
+    photo_attachment_media_id: args.photo_attachment_media_id,
   });
 
   return {

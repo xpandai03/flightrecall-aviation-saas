@@ -29,13 +29,6 @@ async function upsertIssueForMedia(args: {
   if (sesErr) return { ok: false, error: sesErr.message };
   if (!session) return { ok: false, error: "session not found" };
 
-  // Look for an existing issue for this aircraft+type WITH location IS NULL.
-  // The legacy photo-quick-tag path has no location signal at upload time,
-  // so its rows always carry location=NULL. Post-M5 the unique constraint
-  // is (aircraft_id, issue_type_id, location), and Postgres treats NULL as
-  // distinct in unique constraints — without `.is("location", null)` here
-  // a second photo upload of the same quick_tag would create a duplicate
-  // row instead of refreshing the existing one's last_seen_at.
   const { data: existing, error: lookupErr } = await supabase
     .from("issues")
     .select("*")
@@ -105,6 +98,8 @@ const idSchema = z.string().uuid();
 const completeSchema = z.object({
   file_size_bytes: z.number().int().nonnegative().optional(),
   quick_tag: z.enum(["scratch", "dent", "tire", "oil", "other"]).optional(),
+  note_text: z.string().max(500).optional(),
+  photo_attachment_media_id: z.string().uuid().optional(),
 });
 
 export async function POST(
@@ -155,6 +150,23 @@ export async function POST(
     return NextResponse.json({ error: "media not found" }, { status: 404 });
   }
 
+  if (parsed.data.photo_attachment_media_id !== undefined) {
+    if (existing.media_type !== "audio") {
+      return NextResponse.json(
+        { error: "photo_attachment_media_id is only valid for audio media" },
+        { status: 400 },
+      );
+    }
+  }
+  if (parsed.data.note_text !== undefined) {
+    if (existing.media_type !== "photo") {
+      return NextResponse.json(
+        { error: "note_text is only valid for photo media" },
+        { status: 400 },
+      );
+    }
+  }
+
   if (parsed.data.quick_tag !== undefined) {
     const { data: parentSession, error: parentErr } = await supabase
       .from("preflight_sessions")
@@ -179,6 +191,11 @@ export async function POST(
   if (parsed.data.quick_tag !== undefined) {
     update.quick_tag = parsed.data.quick_tag;
   }
+  if (parsed.data.note_text !== undefined && existing.media_type === "photo") {
+    const t = parsed.data.note_text.trim();
+    update.note_text = t.length > 0 ? t : null;
+    update.voice_transcription_id = null;
+  }
 
   const { data: updated, error: updateErr } = await supabase
     .from("media_assets")
@@ -193,10 +210,6 @@ export async function POST(
     );
   }
 
-  // M3: when a photo is uploaded with a quick_tag, find-or-create the
-  // corresponding issue, link the media, and append a 'logged' observation.
-  // Best-effort: if any step fails, log and surface the error in the
-  // response body but never fail the upload itself.
   let issue_id: string | null | undefined = updated.issue_id;
   let issue_error: string | undefined;
   const effectiveQuickTag = parsed.data.quick_tag ?? updated.quick_tag;
@@ -220,7 +233,31 @@ export async function POST(
   }
 
   let voice_transcription_id: string | undefined;
+  let skipKeywordExtraction = false;
+  let photoIdToLink: string | null = null;
+
   if (updated.media_type === "audio") {
+    if (parsed.data.photo_attachment_media_id) {
+      const { data: photoRow, error: photoErr } = await supabase
+        .from("media_assets")
+        .select("id, media_type, preflight_session_id")
+        .eq("id", parsed.data.photo_attachment_media_id)
+        .maybeSingle();
+      if (
+        photoErr ||
+        !photoRow ||
+        photoRow.media_type !== "photo" ||
+        photoRow.preflight_session_id !== updated.preflight_session_id
+      ) {
+        return NextResponse.json(
+          { error: "Invalid photo_attachment_media_id" },
+          { status: 400 },
+        );
+      }
+      photoIdToLink = photoRow.id;
+      skipKeywordExtraction = true;
+    }
+
     const start = await startTranscription({
       supabase,
       media_asset_id: updated.id,
@@ -235,10 +272,27 @@ export async function POST(
       );
     }
     voice_transcription_id = start.voice_transcription_id;
+
+    if (photoIdToLink && voice_transcription_id) {
+      const { error: linkPhotoErr } = await supabase
+        .from("media_assets")
+        .update({
+          voice_transcription_id,
+          note_text: null,
+        })
+        .eq("id", photoIdToLink);
+      if (linkPhotoErr) {
+        console.error("photo voice_transcription_id link failed", {
+          code: linkPhotoErr.code,
+        });
+        return NextResponse.json(
+          { error: "Failed to link voice note to photo" },
+          { status: 500 },
+        );
+      }
+    }
+
     if (!start.alreadyExists) {
-      // Background job: cookie auth context is gone after the response is
-      // sent, so the user-scoped client can't sign storage URLs or write
-      // back the transcription row. Use the service-role client.
       const serviceClient = createServiceRoleClient();
       after(async () => {
         await runTranscription({
@@ -248,6 +302,7 @@ export async function POST(
           media_asset_id: updated.id,
           storage_key: updated.storage_key,
           file_name: updated.file_name,
+          skipKeywordExtraction,
         });
       });
     }

@@ -23,7 +23,12 @@ const DEFAULT_MAX_ATTEMPTS = 24;
 export function useTranscriptionPoll(
   sessionId: string | null,
   enabled: boolean,
-  opts?: { intervalMs?: number; maxAttempts?: number },
+  opts?: {
+    intervalMs?: number;
+    maxAttempts?: number;
+    /** When set, poll this row instead of the first transcript in the session. */
+    transcriptionId?: string | null;
+  },
 ): PollResult {
   const intervalMs = opts?.intervalMs ?? DEFAULT_INTERVAL_MS;
   const maxAttempts = opts?.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
@@ -59,7 +64,35 @@ export function useTranscriptionPoll(
       cancelRef.current = new AbortController();
       try {
         const session: PreflightSessionDetail = await getSession(sessionId);
-        const tx = (session.voice_transcriptions ?? [])[0];
+        const transcripts = session.voice_transcriptions ?? [];
+        const transcriptionId = opts?.transcriptionId;
+        const tx =
+          transcriptionId !== undefined && transcriptionId !== null
+            ? transcripts.find((t) => t.id === transcriptionId)
+            : transcripts[0];
+
+        if (transcriptionId && !tx) {
+          if (attempts >= maxAttempts) {
+            setResult({
+              phase: "timed_out",
+              status: null,
+              transcript_text: null,
+              attempts,
+              error: null,
+            });
+            return;
+          }
+          setResult({
+            phase: "polling",
+            status: null,
+            transcript_text: null,
+            attempts,
+            error: null,
+          });
+          timerRef.current = setTimeout(tick, intervalMs);
+          return;
+        }
+
         const status: TranscriptionStatus | null = tx?.transcription_status ?? null;
         const text = session.transcript_text ?? tx?.transcript_text ?? null;
 
@@ -125,7 +158,13 @@ export function useTranscriptionPoll(
       if (timerRef.current) clearTimeout(timerRef.current);
       cancelRef.current?.abort();
     };
-  }, [enabled, sessionId, intervalMs, maxAttempts]);
+  }, [
+    enabled,
+    sessionId,
+    intervalMs,
+    maxAttempts,
+    opts?.transcriptionId,
+  ]);
 
   return result;
 }

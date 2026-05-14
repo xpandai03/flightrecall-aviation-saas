@@ -78,14 +78,15 @@ export async function POST(
   // status writes both succeed.
   const serviceClient = createServiceRoleClient();
   after(async () => {
-    await runTranscription({
-      supabase: serviceClient,
-      voice_transcription_id: start.voice_transcription_id,
-      preflight_session_id: media.preflight_session_id,
-      media_asset_id: media.id,
-      storage_key: media.storage_key,
-      file_name: media.file_name,
-    });
+        await runTranscription({
+          supabase: serviceClient,
+          voice_transcription_id: start.voice_transcription_id,
+          preflight_session_id: media.preflight_session_id,
+          media_asset_id: media.id,
+          storage_key: media.storage_key,
+          file_name: media.file_name,
+          skipKeywordExtraction: false,
+        });
   });
 
   return NextResponse.json(
