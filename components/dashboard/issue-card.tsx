@@ -1,3 +1,6 @@
+import type { ReactNode } from "react";
+import { ChevronDown } from "lucide-react";
+
 import { cn } from "@/lib/utils";
 import { mapSeverityToPillVariant } from "@/lib/issue-derivation";
 import { StatusPill } from "@/components/dashboard/status-pill";
@@ -9,7 +12,13 @@ interface IssueCardProps {
   description?: string | null;
   severity: Severity;
   history?: string;
+  /** Legacy: whole card acts as one control (no expand panel). */
   onClick?: () => void;
+  /** Expand/collapse row; when set with `below`, renders split layout for M3 dashboard. */
+  expandable?: boolean;
+  expanded?: boolean;
+  onExpandToggle?: () => void;
+  below?: ReactNode;
   className?: string;
 }
 
@@ -25,15 +34,12 @@ export function IssueCard({
   severity,
   history,
   onClick,
+  expandable,
+  expanded,
+  onExpandToggle,
+  below,
   className,
 }: IssueCardProps) {
-  const containerCls = cn(
-    "flex items-start gap-3 rounded-2xl bg-bg-card-glass border border-border-subtle p-4 shadow-card-glow w-full text-left",
-    onClick &&
-      "transition-colors hover:border-accent-teal/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-teal",
-    className,
-  );
-
   const body = (
     <>
       <span
@@ -56,8 +62,51 @@ export function IssueCard({
           <div className="mt-1 text-xs text-text-muted">{history}</div>
         )}
       </div>
-      <StatusPill variant={mapSeverityToPillVariant(severity)} />
+      <div className="flex items-center gap-1 shrink-0">
+        <StatusPill variant={mapSeverityToPillVariant(severity)} />
+        {expandable && onExpandToggle && (
+          <ChevronDown
+            className={cn(
+              "size-4 text-text-muted transition-transform duration-150",
+              expanded && "rotate-180",
+            )}
+            aria-hidden
+          />
+        )}
+      </div>
     </>
+  );
+
+  if (expandable && onExpandToggle) {
+    return (
+      <div
+        className={cn(
+          "rounded-2xl bg-bg-card-glass border border-border-subtle shadow-card-glow w-full overflow-hidden",
+          className,
+        )}
+      >
+        <button
+          type="button"
+          onClick={onExpandToggle}
+          aria-expanded={expanded}
+          className="flex items-start gap-3 p-4 w-full text-left transition-colors hover:border-accent-teal/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-teal focus-visible:ring-inset"
+        >
+          {body}
+        </button>
+        {expanded && below ? (
+          <div className="border-t border-border-subtle bg-bg-card-glass/80 px-4 py-3">
+            {below}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  const containerCls = cn(
+    "flex items-start gap-3 rounded-2xl bg-bg-card-glass border border-border-subtle p-4 shadow-card-glow w-full text-left",
+    onClick &&
+      "transition-colors hover:border-accent-teal/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-teal",
+    className,
   );
 
   if (onClick) {
