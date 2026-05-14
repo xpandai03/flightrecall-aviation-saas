@@ -14,6 +14,7 @@ import {
 import { QuickTagPicker } from "@/components/preflight/quick-tag-picker";
 import { Confirmation } from "@/components/preflight/confirmation";
 import { CarryForward } from "@/components/preflight/carry-forward";
+import { CosmeticIssuesBucket } from "@/components/preflight/cosmetic-issues-bucket";
 import {
   InProgressList,
   type InProgressInput,
@@ -216,6 +217,7 @@ export default function PreflightPage() {
   const aircraftTail = defaultAircraft?.tail_number ?? "—";
   const {
     critical: carryCriticalIssues,
+    cosmetic: carryCosmeticIssues,
     refresh: refreshActiveIssues,
     optimisticallyRemove: removeActiveIssue,
   } = useActiveIssues(aircraftId);
@@ -261,11 +263,16 @@ export default function PreflightPage() {
     [defaultAircraft, inProgressSession],
   );
 
-  const handleCarryForwardAction = React.useCallback(
+  const handleIssueObservationAction = React.useCallback(
     async (issueId: string, action: PendingAction) => {
       removeActiveIssue(issueId);
       try {
-        await postIssueObservation(issueId, { action });
+        await postIssueObservation(issueId, {
+          action,
+          ...(inProgressSession
+            ? { preflight_session_id: inProgressSession.id }
+            : {}),
+        });
         refreshAircraftStatus();
       } catch (err) {
         toast.error("Couldn't record action", {
@@ -274,7 +281,12 @@ export default function PreflightPage() {
         refreshActiveIssues();
       }
     },
-    [removeActiveIssue, refreshActiveIssues, refreshAircraftStatus],
+    [
+      removeActiveIssue,
+      refreshActiveIssues,
+      refreshAircraftStatus,
+      inProgressSession,
+    ],
   );
 
   const handlePick = (choice: "voice" | "photo" | "no_issues") => {
@@ -483,9 +495,17 @@ export default function PreflightPage() {
       {onIdle && carryCriticalIssues.length > 0 && (
         <CarryForward
           issues={carryCriticalIssues}
-          onAction={handleCarryForwardAction}
+          onAction={handleIssueObservationAction}
           disabled={false}
           totalActiveCount={aircraftStatus?.active_issue_count}
+        />
+      )}
+
+      {onIdle && carryCosmeticIssues.length > 0 && (
+        <CosmeticIssuesBucket
+          issues={carryCosmeticIssues}
+          onAction={handleIssueObservationAction}
+          disabled={false}
         />
       )}
 
