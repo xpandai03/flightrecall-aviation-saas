@@ -9,7 +9,8 @@ import type {
   ActiveIssuesBySeverity,
 } from "@/lib/types/database";
 
-function flightsSinceForIssue(
+/** Flights since last_seen_at for dashboard copy; shared with AI summary prompt. */
+export function computeFlightsSince(
   lastSeenAt: string,
   sessionTimes: number[],
 ): number {
@@ -87,7 +88,7 @@ export async function loadActiveIssuesBySeverity(
     const recurrence_count = sortedObs.filter((o) =>
       isRecurrenceAction(o.action),
     ).length;
-    const flights_since = flightsSinceForIssue(
+    const flights_since = computeFlightsSince(
       issue.last_seen_at,
       sessionTimes,
     );
