@@ -101,6 +101,17 @@ export type ActiveIssue = IssueWithType & {
   flights_since: number;
 };
 
+/** Active issue + dashboard / preflight enrichment (M3 Item 2). */
+export type ActiveIssueEnriched = ActiveIssue & {
+  originating_session_id: string | null;
+  recurrence_count: number;
+};
+
+export type ActiveIssuesBySeverity = {
+  critical: ActiveIssueEnriched[];
+  cosmetic: ActiveIssueEnriched[];
+};
+
 export type IssueObservation = {
   id: string;
   issue_id: string;
@@ -119,6 +130,7 @@ export type IssueObservationDetail = IssueObservation & {
   issue: IssueWithType;
 };
 
+/** `active_issue_count` is critical-severity actives only (cosmetic excluded). */
 export type AircraftStatus = {
   status_color: StatusColor;
   active_issue_count: number;
