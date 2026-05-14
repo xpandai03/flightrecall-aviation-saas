@@ -75,6 +75,8 @@ type RunArgs = {
   media_asset_id: string;
   storage_key: string;
   file_name: string | null;
+  /** Photo-attached voice: transcribe only — no extraction or description backfill. */
+  skipKeywordExtraction?: boolean;
 };
 
 /**
@@ -92,6 +94,7 @@ export async function runTranscription(args: RunArgs): Promise<void> {
     media_asset_id,
     storage_key,
     file_name,
+    skipKeywordExtraction = false,
   } = args;
 
   console.log("[transcription] entry", {
@@ -146,48 +149,50 @@ export async function runTranscription(args: RunArgs): Promise<void> {
     // prefers voice_transcriptions[0].transcript_text and falls back to
     // the session column for legacy single-input rows.
 
-    // M2 Phase 2: deterministic keyword extraction. Best-effort —
-    // extraction failures are logged but never flip the transcription
-    // to 'failed'. Transcription is the higher-priority path; extracted
-    // issues are an additive convenience.
-    try {
-      const extracted = extractIssues(result.text);
-      if (extracted.length > 0) {
-        await persistExtractedIssues(supabase, {
-          preflight_session_id,
-          extracted,
+    if (!skipKeywordExtraction) {
+      // M2 Phase 2: deterministic keyword extraction. Best-effort —
+      // extraction failures are logged but never flip the transcription
+      // to 'failed'. Transcription is the higher-priority path; extracted
+      // issues are an additive convenience.
+      try {
+        const extracted = extractIssues(result.text);
+        if (extracted.length > 0) {
+          await persistExtractedIssues(supabase, {
+            preflight_session_id,
+            extracted,
+          });
+        }
+      } catch (err) {
+        console.error("[transcription] extraction failed", {
+          voice_transcription_id,
+          error: err instanceof Error ? err.message : String(err),
         });
       }
-    } catch (err) {
-      console.error("[transcription] extraction failed", {
-        voice_transcription_id,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
 
-    // If this audio was tagged at upload time, the issue exists with a null
-    // description. Backfill it from the transcript (overwrite unconditionally
-    // so the most recent voice note wins). Best-effort.
-    const { data: media, error: mediaErr } = await supabase
-      .from("media_assets")
-      .select("issue_id")
-      .eq("id", media_asset_id)
-      .maybeSingle();
-    if (mediaErr) {
-      console.error("[transcription] issue lookup failed", {
-        media_asset_id,
-        error: mediaErr.message,
-      });
-    } else if (media?.issue_id) {
-      const { error: descErr } = await supabase
-        .from("issues")
-        .update({ description: result.text.slice(0, 500) })
-        .eq("id", media.issue_id);
-      if (descErr) {
-        console.error("[transcription] description backfill failed", {
-          issue_id: media.issue_id,
-          error: descErr.message,
+      // If this audio was tagged at upload time, the issue exists with a null
+      // description. Backfill it from the transcript (overwrite unconditionally
+      // so the most recent voice note wins). Best-effort.
+      const { data: media, error: mediaErr } = await supabase
+        .from("media_assets")
+        .select("issue_id")
+        .eq("id", media_asset_id)
+        .maybeSingle();
+      if (mediaErr) {
+        console.error("[transcription] issue lookup failed", {
+          media_asset_id,
+          error: mediaErr.message,
         });
+      } else if (media?.issue_id) {
+        const { error: descErr } = await supabase
+          .from("issues")
+          .update({ description: result.text.slice(0, 500) })
+          .eq("id", media.issue_id);
+        if (descErr) {
+          console.error("[transcription] description backfill failed", {
+            issue_id: media.issue_id,
+            error: descErr.message,
+          });
+        }
       }
     }
   } catch (err) {
