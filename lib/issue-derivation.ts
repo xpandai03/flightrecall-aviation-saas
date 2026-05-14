@@ -24,6 +24,12 @@ export function formatIssueHistory(input: IssueHistoryInput): string {
   return `Seen ${input.flights_since} flights ago`;
 }
 
+/** Expanded dashboard copy — always shows last-seen phrasing (unlike IssueCard history line). */
+export function formatIssueLastSeenLine(flightsSince: number): string {
+  if (flightsSince <= 1) return "Last seen on your most recent flight";
+  return `Last seen ${flightsSince} flights ago`;
+}
+
 /**
  * Per-issue severity. Locked rule:
  *   resolved          → 'resolved'
