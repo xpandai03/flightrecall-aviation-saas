@@ -2,7 +2,8 @@
 
 import * as React from "react";
 import type {
-  ActiveIssue,
+  ActiveIssueEnriched,
+  ActiveIssuesBySeverity,
   AircraftIssuesResponse,
   AircraftStatus,
   IssueAction,
@@ -24,8 +25,10 @@ export function fetchAircraftStatus(aircraftId: string): Promise<AircraftStatus>
   return jsonFetch<AircraftStatus>(`/api/v1/aircraft/${aircraftId}/status`);
 }
 
-export function fetchActiveIssues(aircraftId: string): Promise<ActiveIssue[]> {
-  return jsonFetch<ActiveIssue[]>(
+export function fetchActiveIssues(
+  aircraftId: string,
+): Promise<ActiveIssuesBySeverity> {
+  return jsonFetch<ActiveIssuesBySeverity>(
     `/api/v1/aircraft/${aircraftId}/active-issues`,
   );
 }
@@ -125,12 +128,14 @@ export function useAircraftStatus(aircraftId: string | null): {
 }
 
 export function useActiveIssues(aircraftId: string | null): {
-  issues: ActiveIssue[];
+  critical: ActiveIssueEnriched[];
+  cosmetic: ActiveIssueEnriched[];
   loading: boolean;
   refresh: () => void;
   optimisticallyRemove: (issueId: string) => void;
 } {
-  const [issues, setIssues] = React.useState<ActiveIssue[]>([]);
+  const [critical, setCritical] = React.useState<ActiveIssueEnriched[]>([]);
+  const [cosmetic, setCosmetic] = React.useState<ActiveIssueEnriched[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [tick, setTick] = React.useState(0);
 
@@ -139,11 +144,17 @@ export function useActiveIssues(aircraftId: string | null): {
     let cancelled = false;
     setLoading(true);
     fetchActiveIssues(aircraftId)
-      .then((rows) => {
-        if (!cancelled) setIssues(rows);
+      .then((buckets) => {
+        if (!cancelled) {
+          setCritical(buckets.critical);
+          setCosmetic(buckets.cosmetic);
+        }
       })
       .catch(() => {
-        if (!cancelled) setIssues([]);
+        if (!cancelled) {
+          setCritical([]);
+          setCosmetic([]);
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -154,11 +165,13 @@ export function useActiveIssues(aircraftId: string | null): {
   }, [aircraftId, tick]);
 
   const optimisticallyRemove = React.useCallback((issueId: string) => {
-    setIssues((prev) => prev.filter((i) => i.id !== issueId));
+    setCritical((prev) => prev.filter((i) => i.id !== issueId));
+    setCosmetic((prev) => prev.filter((i) => i.id !== issueId));
   }, []);
 
   return {
-    issues,
+    critical,
+    cosmetic,
     loading,
     refresh: () => setTick((t) => t + 1),
     optimisticallyRemove,

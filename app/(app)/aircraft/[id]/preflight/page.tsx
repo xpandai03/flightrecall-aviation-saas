@@ -215,7 +215,7 @@ export default function PreflightPage() {
   const defaultAircraft = aircraft;
   const aircraftTail = defaultAircraft?.tail_number ?? "—";
   const {
-    issues: activeIssues,
+    critical: carryCriticalIssues,
     refresh: refreshActiveIssues,
     optimisticallyRemove: removeActiveIssue,
   } = useActiveIssues(aircraftId);
@@ -480,9 +480,9 @@ export default function PreflightPage() {
         </p>
       </div>
 
-      {onIdle && activeIssues.length > 0 && (
+      {onIdle && carryCriticalIssues.length > 0 && (
         <CarryForward
-          issues={activeIssues}
+          issues={carryCriticalIssues}
           onAction={handleCarryForwardAction}
           disabled={false}
           totalActiveCount={aircraftStatus?.active_issue_count}

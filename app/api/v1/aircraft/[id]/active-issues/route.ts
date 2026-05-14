@@ -2,11 +2,11 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { z } from "zod";
 import { createClient } from "@/utils/supabase/server";
+import { loadActiveIssuesBySeverity } from "@/lib/active-issues-load";
 
 export const dynamic = "force-dynamic";
 
 const idSchema = z.string().uuid();
-const MAX_ACTIVE = 5;
 
 export async function GET(
   _request: Request,
@@ -28,44 +28,11 @@ export async function GET(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const [issuesRes, sessionsRes] = await Promise.all([
-    supabase
-      .from("issues")
-      .select("*, issue_type:issue_types(*)")
-      .eq("aircraft_id", parsed.data)
-      .eq("current_status", "active")
-      .order("last_seen_at", { ascending: false })
-      .limit(MAX_ACTIVE),
-    supabase
-      .from("preflight_sessions")
-      .select("created_at")
-      .eq("aircraft_id", parsed.data)
-      .order("created_at", { ascending: true }),
-  ]);
-
-  if (issuesRes.error) {
-    return NextResponse.json(
-      { error: issuesRes.error.message },
-      { status: 500 },
-    );
+  try {
+    const buckets = await loadActiveIssuesBySeverity(supabase, parsed.data);
+    return NextResponse.json(buckets);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Unknown error";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
-  if (sessionsRes.error) {
-    return NextResponse.json(
-      { error: sessionsRes.error.message },
-      { status: 500 },
-    );
-  }
-
-  const sessionTimes = (sessionsRes.data ?? []).map((s) =>
-    new Date(s.created_at).getTime(),
-  );
-
-  const enriched = (issuesRes.data ?? []).map((issue) => {
-    const lastSeenMs = new Date(issue.last_seen_at).getTime();
-    const sessionsSince = sessionTimes.filter((t) => t > lastSeenMs).length;
-    const flights_since = Math.max(1, sessionsSince + 1);
-    return { ...issue, flights_since };
-  });
-
-  return NextResponse.json(enriched);
 }

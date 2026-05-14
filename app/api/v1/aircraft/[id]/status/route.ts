@@ -40,17 +40,23 @@ export async function GET(
     return NextResponse.json({ error: "Aircraft not found" }, { status: 404 });
   }
 
-  const { count, error: countErr } = await supabase
+  const { data: rows, error: rowsErr } = await supabase
     .from("issues")
-    .select("*", { count: "exact", head: true })
+    .select("id, issue_type:issue_types(severity_class)")
     .eq("aircraft_id", parsed.data)
     .eq("current_status", "active");
 
-  if (countErr) {
-    return NextResponse.json({ error: countErr.message }, { status: 500 });
+  if (rowsErr) {
+    return NextResponse.json({ error: rowsErr.message }, { status: 500 });
   }
 
-  const active_issue_count = count ?? 0;
+  const active_issue_count =
+    rows?.filter(
+      (r) =>
+        (r.issue_type as { severity_class?: string } | null)
+          ?.severity_class === "critical",
+    ).length ?? 0;
+
   const status_color = computeStatusColor(active_issue_count);
 
   return NextResponse.json({ status_color, active_issue_count });
