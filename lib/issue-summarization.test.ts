@@ -41,6 +41,71 @@ describe("buildIssueSummaryPrompt", () => {
     expect(p).toContain("Last seen: 4 flights ago");
     expect(p).not.toMatch(/transcript/i);
   });
+
+  it("includes every forbidden word in the rules list", () => {
+    const p = buildIssueSummaryPrompt({
+      issue_type_name: "Vibration",
+      location_label: "Left wing",
+      times_observed: 1,
+      last_seen_phrase: "Current preflight",
+    });
+    const forbidden = [
+      "should",
+      "must",
+      "consider",
+      "danger",
+      "safety",
+      "immediate",
+      "attention",
+      "ground",
+      "urgent",
+      "severe",
+      "important",
+      "recommend",
+      "suggest",
+      "advise",
+      "critical",
+      "cosmetic",
+    ];
+    for (const word of forbidden) {
+      expect(p).toContain(word);
+    }
+  });
+
+  it("includes BAD and GOOD counter-examples in the prompt body", () => {
+    const p = buildIssueSummaryPrompt({
+      issue_type_name: "Vibration",
+      location_label: "Left wing",
+      times_observed: 1,
+      last_seen_phrase: "Current preflight",
+    });
+    expect(p).toContain("BAD:");
+    expect(p).toContain("GOOD:");
+    // The exact production failing case must remain in the prompt as a
+    // negative anchor — if it drifts out, regression risk returns.
+    expect(p).toContain("needs immediate attention before flight");
+  });
+
+  it("does not echo the severity bucket field", () => {
+    const p = buildIssueSummaryPrompt({
+      issue_type_name: "Vibration",
+      location_label: "Left wing",
+      times_observed: 1,
+      last_seen_phrase: "Current preflight",
+    });
+    expect(p).not.toMatch(/Severity bucket:/);
+    expect(p).not.toMatch(/severity_class/);
+  });
+
+  it("states the no-recommendation rule explicitly", () => {
+    const p = buildIssueSummaryPrompt({
+      issue_type_name: "Vibration",
+      location_label: "Left wing",
+      times_observed: 1,
+      last_seen_phrase: "Current preflight",
+    });
+    expect(p).toMatch(/Do not give recommendations/);
+  });
 });
 
 describe("validateIssueSummaryOutput", () => {
