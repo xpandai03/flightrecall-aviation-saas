@@ -24,7 +24,6 @@ describe("buildIssueSummaryPrompt", () => {
       location_label: "Belly",
       times_observed: 0,
       last_seen_phrase: "Current preflight",
-      severity_class: "critical",
     });
     expect(p).toContain("Times logged or re-confirmed (logged + still): 1");
   });
@@ -35,13 +34,11 @@ describe("buildIssueSummaryPrompt", () => {
       location_label: "Left wing root",
       times_observed: 3,
       last_seen_phrase: "4 flights ago",
-      severity_class: "cosmetic",
     });
     expect(p).toContain("Issue type: Corrosion");
     expect(p).toContain("Location: Left wing root");
     expect(p).toContain("Times logged or re-confirmed (logged + still): 3");
     expect(p).toContain("Last seen: 4 flights ago");
-    expect(p).toContain("Severity bucket: cosmetic");
     expect(p).not.toMatch(/transcript/i);
   });
 });

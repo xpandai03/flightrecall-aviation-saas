@@ -94,7 +94,7 @@ async function loadSummaryPromptFacts(
   const { data: issue, error: issErr } = await supabase
     .from("issues")
     .select(
-      "id, last_seen_at, aircraft_id, location, issue_type:issue_types(name, severity_class)",
+      "id, last_seen_at, aircraft_id, location, issue_type:issue_types(name)",
     )
     .eq("id", issueId)
     .maybeSingle();
@@ -122,7 +122,7 @@ async function loadSummaryPromptFacts(
 
   const rawType = issue.issue_type as unknown;
   const itRow = Array.isArray(rawType) ? rawType[0] : rawType;
-  const it = itRow as { name: string; severity_class: string } | null;
+  const it = itRow as { name: string } | null;
   if (!it?.name?.trim()) return null;
 
   return {
@@ -131,7 +131,6 @@ async function loadSummaryPromptFacts(
       location_label: issue.location?.trim() || "Not specified",
       times_observed: recurrence_count,
       last_seen_phrase: lastSeenPhraseFromFlightsSince(flightsSince),
-      severity_class: it.severity_class,
     },
   };
 }

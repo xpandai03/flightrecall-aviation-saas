@@ -3,7 +3,6 @@ export type IssueSummaryPromptFacts = {
   location_label: string;
   times_observed: number;
   last_seen_phrase: string;
-  severity_class: string;
 };
 
 export function lastSeenPhraseFromFlightsSince(flightsSince: number): string {
@@ -13,20 +12,36 @@ export function lastSeenPhraseFromFlightsSince(flightsSince: number): string {
 
 /**
  * Locked template: structured facts only — no transcript or free-text tails.
- * Used for regression tests; keep wording stable unless product intentionally changes.
+ * The forbidden-words list and BAD/GOOD counter-examples are load-bearing for
+ * suppressing safety advice and severity-class leakage; do not weaken either
+ * section without re-running production verification.
  */
 export function buildIssueSummaryPrompt(facts: IssueSummaryPromptFacts): string {
   const n = Math.max(1, facts.times_observed);
   return [
     "You summarize one aircraft preflight issue for a pilot checklist UI.",
-    "Rules: exactly two short sentences, plain English, no bullets, no labels, no numbers not implied below.",
-    "Do not invent facts; use only the structured fields.",
+    "Write exactly two short sentences in plain English. State only: what the issue is, where it is, how often it has been observed, and how recently. Use only the structured fields below.",
+    "",
+    "Strict rules:",
+    "- Do not give recommendations, advice, urgency cues, or risk assessments.",
+    "- Never use any of these words: should, must, consider, danger, safety, immediate, attention, ground, urgent, severe, important, recommend, suggest, advise, critical, cosmetic.",
+    "- Do not describe the issue as critical, cosmetic, minor, major, serious, or any other severity label.",
+    "- Do not tell the pilot what to do. Just describe the facts.",
+    "",
+    "Examples of BAD outputs (do not produce anything like these):",
+    'BAD: "There is a critical vibration issue detected in the left wing during the current preflight. This has been logged once and needs immediate attention before flight."',
+    'BAD: "A serious oil leak is present on the fuselage that should be addressed immediately."',
+    'BAD: "A cosmetic dent is on the right wing — minor concern only."',
+    "",
+    "Examples of GOOD outputs (match this style):",
+    'GOOD: "A vibration was reported in the left wing during the current preflight. This is the first time it has been recorded."',
+    'GOOD: "An oil leak has been observed on the fuselage during the current preflight. This is the third time it has been recorded on this aircraft."',
+    'GOOD: "A dent was reported on the right wing two flights ago. It has been observed once."',
     "",
     `Issue type: ${facts.issue_type_name}`,
     `Location: ${facts.location_label}`,
     `Times logged or re-confirmed (logged + still): ${n}`,
     `Last seen: ${facts.last_seen_phrase}`,
-    `Severity bucket: ${facts.severity_class}`,
   ].join("\n");
 }
 
