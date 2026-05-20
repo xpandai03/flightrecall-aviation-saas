@@ -6,6 +6,7 @@ import {
   type ExtractedIssue,
 } from "@/lib/issue-extraction";
 import { generateIssueSummary } from "@/lib/issue-summarization";
+import { selectIssueForExtraction } from "@/lib/issue-resurrection";
 
 const BUCKET = "flight-recall-media";
 
@@ -287,11 +288,18 @@ async function persistOne(
     return;
   }
 
-  // Lookup existing issue row by (aircraft, type, location).
-  // Postgres unique constraint matches on (aircraft_id, issue_type_id,
-  // location). Since NULLs are distinct in unique constraints, we have
-  // to manually distinguish ".eq" vs ".is null" — same pattern as the
-  // legacy upsertIssueForMedia patch.
+  // Lookup every issue row matching (aircraft, type, location),
+  // regardless of status. Postgres treats NULLs as distinct in unique
+  // indexes, so we manually distinguish ".eq" vs ".is null" — same
+  // pattern as the legacy upsertIssueForMedia path.
+  //
+  // We deliberately do NOT use .maybeSingle() here: a resolved row and
+  // an active row may legitimately coexist for the same key. The
+  // reuse-vs-insert decision is delegated to selectIssueForExtraction,
+  // which only ever reuses an ACTIVE row — a resolved match is left
+  // untouched and a fresh issue is inserted instead. This is the
+  // resurrection fix: voice extraction never re-activates a resolved
+  // issue.
   let lookupQuery = supabase
     .from("issues")
     .select("id, current_status")
@@ -302,11 +310,13 @@ async function persistOne(
       ? lookupQuery.is("location", null)
       : lookupQuery.eq("location", extracted.location);
 
-  const { data: existing, error: lookupErr } = await lookupQuery.maybeSingle();
+  const { data: candidates, error: lookupErr } = await lookupQuery;
   if (lookupErr) throw new Error(`issue lookup: ${lookupErr.message}`);
 
+  const decision = selectIssueForExtraction(candidates ?? []);
+
   let issue_id: string;
-  if (existing) {
+  if (decision.action === "update") {
     const { data: updated, error: uErr } = await supabase
       .from("issues")
       .update({
@@ -314,7 +324,7 @@ async function persistOne(
         current_status: "active",
         resolved_at: null,
       })
-      .eq("id", existing.id)
+      .eq("id", decision.id)
       .select("id")
       .single();
     if (uErr || !updated) {

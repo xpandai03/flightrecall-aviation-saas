@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient, createServiceRoleClient } from "@/utils/supabase/server";
 import { runTranscription, startTranscription } from "@/lib/transcription-job";
+import { selectIssueForExtraction } from "@/lib/issue-resurrection";
 
 async function upsertIssueForMedia(args: {
   supabase: SupabaseClient;
@@ -29,17 +30,24 @@ async function upsertIssueForMedia(args: {
   if (sesErr) return { ok: false, error: sesErr.message };
   if (!session) return { ok: false, error: "session not found" };
 
-  const { data: existing, error: lookupErr } = await supabase
+  // Match every issue row for (aircraft, type) with a null location —
+  // the legacy quick-tag path never sets location. No .maybeSingle():
+  // a resolved row and an active row may now coexist for the same key.
+  // selectIssueForExtraction reuses only an ACTIVE row, so a photo
+  // quick-tag never re-activates a resolved issue — it inserts a fresh
+  // one instead.
+  const { data: candidates, error: lookupErr } = await supabase
     .from("issues")
-    .select("*")
+    .select("id, current_status")
     .eq("aircraft_id", session.aircraft_id)
     .eq("issue_type_id", type.id)
-    .is("location", null)
-    .maybeSingle();
+    .is("location", null);
   if (lookupErr) return { ok: false, error: lookupErr.message };
 
+  const decision = selectIssueForExtraction(candidates ?? []);
+
   let issue_id: string;
-  if (existing) {
+  if (decision.action === "update") {
     const { data: updated, error: uErr } = await supabase
       .from("issues")
       .update({
@@ -47,7 +55,7 @@ async function upsertIssueForMedia(args: {
         current_status: "active",
         resolved_at: null,
       })
-      .eq("id", existing.id)
+      .eq("id", decision.id)
       .select("id")
       .single();
     if (uErr || !updated) {
