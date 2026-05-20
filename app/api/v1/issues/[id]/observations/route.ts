@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { z } from "zod";
 import { createClient } from "@/utils/supabase/server";
+import {
+  isStillRejectedForResolved,
+  STILL_ON_RESOLVED_ERROR,
+} from "@/lib/issue-resurrection";
 
 export const dynamic = "force-dynamic";
 
@@ -64,6 +68,19 @@ export async function POST(
   }
 
   const { action, preflight_session_id } = parsed.data;
+
+  // Resurrection guard: a 'still' observation on a resolved issue is
+  // semantically invalid and would silently re-activate it. Reject
+  // before any mutation, observation insert, or summary regeneration.
+  if (isStillRejectedForResolved(action, issue.current_status)) {
+    console.warn("observations: rejected 'still' on resolved issue", {
+      issue_id: issue.id,
+    });
+    return NextResponse.json(
+      { error: STILL_ON_RESOLVED_ERROR },
+      { status: 400 },
+    );
+  }
 
   let updatedIssue = issue;
   if (action === "still") {

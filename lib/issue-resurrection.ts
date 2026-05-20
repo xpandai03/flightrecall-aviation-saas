@@ -32,3 +32,22 @@ export function selectIssueForExtraction(
   const active = candidates.find((c) => c.current_status === "active");
   return active ? { action: "update", id: active.id } : { action: "insert" };
 }
+
+/** Error body returned when a 'still' observation targets a resolved issue. */
+export const STILL_ON_RESOLVED_ERROR =
+  "Cannot mark resolved issue as still present";
+
+/**
+ * A 'still' observation asserts an issue is still present — semantically
+ * incompatible with a resolved issue. Reject it so a resolved issue is
+ * never silently re-activated through the observations endpoint.
+ *
+ * 'fixed' and 'skipped' on a resolved issue stay idempotent no-ops and
+ * are intentionally NOT rejected here.
+ */
+export function isStillRejectedForResolved(
+  action: string,
+  currentStatus: string,
+): boolean {
+  return action === "still" && currentStatus === "resolved";
+}
