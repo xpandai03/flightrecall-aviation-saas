@@ -63,6 +63,15 @@ const ISSUE_KEYWORDS: Record<string, string> = {
   // LANDING GEAR / TIRES
   "tire low": "tire_low",
   "tire worn": "tire_worn",
+  // Bare "worn" catches natural phrasings the contiguous "tire worn"
+  // phrase misses ("tire looks worn", "tire is worn", "right main tire
+  // ... worn"). Without it the worn-tire issue is dropped entirely AND
+  // its location is left unclaimed for a neighbouring issue keyword to
+  // mis-pair across the window. Longest-match-first still lets the
+  // explicit "tire worn" phrase win where the words are contiguous.
+  // V1 imprecision: a non-tire "worn" (e.g. "brake worn") also reads
+  // as tire_worn — acceptable until the M4 vocabulary expansion.
+  worn: "tire_worn",
   "flat tire": "flat_tire",
   "brake wear": "brake_wear",
   "brake soft": "brake_soft",
