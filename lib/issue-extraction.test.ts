@@ -163,14 +163,16 @@ describe("internal vocabulary tables", () => {
     }
   });
 
-  it("ISSUE_KEYWORDS values match the V1 spec slug set (29 entries)", () => {
+  it("ISSUE_KEYWORDS values match the V1 spec slug set (31 entries)", () => {
     const slugs = new Set(Object.values(__testing__.ISSUE_KEYWORDS));
     // 28 slugs from the M5 migration (oil_on_belly + oil_on_engine
     // dropped in the M5 #2 corrective patch — the location pairer
-    // handles them) plus the legacy 'dent' slug. Bare "oil" was added
-    // as a keyword pointing to the existing oil_leak slug, so the
-    // unique-slug count stayed at 29 rather than 30.
-    expect(slugs.size).toBe(29);
+    // handles them) plus the legacy 'dent' slug = 29. The M3 release
+    // goodwill round added M4-list alias keywords that reach two more
+    // legacy quick-tag slugs: 'scratch' (scrape / rock chips / chipped
+    // paint) and 'other' (broken / torn). No new issue_types rows —
+    // both slugs already exist — so the count rose 29 -> 31.
+    expect(slugs.size).toBe(31);
   });
 
   it("LOCATION_KEYWORDS canonicalizes to the V1 spec's 6 location groups", () => {

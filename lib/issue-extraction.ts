@@ -95,6 +95,29 @@ const ISSUE_KEYWORDS: Record<string, string> = {
   "unusual noise": "unusual_noise",
   "rough engine": "rough_engine",
   "something feels off": "something_off",
+  // --- M4 wish-list aliases (M3 release goodwill round) --------------
+  // Eight keywords from Zach's M4 list, each mapped to an EXISTING slug
+  // (no new issue_types, no migration). Aliases only — the full M4
+  // vocabulary expansion stays out of scope. Two of the requested ten
+  // were withheld: "damage" (mass false-positive risk under V1's
+  // no-negation scan — "no damage" / "checked for damage" would emit
+  // phantom issues) and "hole" (substring of the common word "whole";
+  // the word-boundary guard only covers keys <= SHORT_KEYWORD_MAX_LEN,
+  // so a 4-char "hole" cannot be added safely until M4 extends
+  // boundary checks to longer keys).
+  broken: "other",
+  torn: "other",
+  scrape: "scratch",
+  "rock chips": "scratch",
+  "low pressure": "tire_low",
+  "chipped paint": "scratch",
+  // Bare "loose" catches "panel is loose" / "loose bracket" the way
+  // bare "worn" catches non-contiguous tire-worn phrasings; the
+  // contiguous "loose panel" and "cap loose" keys still win via
+  // longest-match-first. V1 imprecision: a non-panel "loose" reads as
+  // loose_panel — acceptable, mirrors the worn -> tire_worn tradeoff.
+  loose: "loose_panel",
+  rusted: "corrosion",
 };
 
 /** Location keyword → canonical location label (matches the V1 spec
@@ -162,6 +185,9 @@ const ISSUE_NAME_BY_SLUG: Record<string, string> = {
   unusual_noise: "Unusual Noise",
   rough_engine: "Rough Engine",
   something_off: "Something Feels Off",
+  // Legacy quick-tag slugs reachable via the M4 wish-list aliases above.
+  scratch: "Scratch",
+  other: "Other",
 };
 
 type Match<V> = {
