@@ -79,6 +79,55 @@ const FIXTURES: Fixture[] = [
     expected: null,
     note: "word-boundary guard — bare 'oil' must not match inside 'spoilers'",
   },
+
+  // --- M4 wish-list alias keywords (M3 release goodwill round) --------
+  // One fixture per keyword added to ISSUE_KEYWORDS, plus a generic-
+  // keyword edge case. Each maps to an existing slug — no new taxonomy.
+  {
+    input: "broken bracket on the left wing",
+    expected: { type: "other", location: "Left Wing" },
+    note: "alias — 'broken' is generic, maps to the catch-all 'other' slug",
+  },
+  {
+    input: "torn seal near the tail",
+    expected: { type: "other", location: "Tail" },
+    note: "alias — 'torn' has no dedicated slug, maps to 'other'",
+  },
+  {
+    input: "there's a scrape on the fuselage",
+    expected: { type: "scratch", location: "Fuselage" },
+    note: "alias — 'scrape' maps to the existing 'scratch' slug",
+  },
+  {
+    input: "rock chips on the cowling",
+    expected: { type: "scratch", location: "Engine Area" },
+    note: "multi-word alias — 'rock chips' maps to 'scratch'",
+  },
+  {
+    input: "the right main tire is low pressure",
+    expected: { type: "tire_low", location: "Landing Gear" },
+    note: "multi-word alias — 'low pressure' maps to 'tire_low'",
+  },
+  {
+    input: "chipped paint on the right wing",
+    expected: { type: "scratch", location: "Right Wing" },
+    note: "multi-word alias — 'chipped paint' maps to 'scratch'",
+  },
+  {
+    input: "loose bracket on the right wing",
+    expected: { type: "loose_panel", location: "Right Wing" },
+    note: "alias — bare 'loose' maps to 'loose_panel'",
+  },
+  {
+    input: "rusted bracket on the left wing",
+    expected: { type: "corrosion", location: "Left Wing" },
+    note: "alias — 'rusted' maps to the existing 'corrosion' slug",
+  },
+  {
+    input: "something looks broken",
+    expected: { type: "other", location: null },
+    note: "edge case — generic 'broken' with no location resolves to the generic 'other' slug, never a wrong specific category",
+  },
 ];
 
 describe("extractIssues — fixture regression cases", () => {
