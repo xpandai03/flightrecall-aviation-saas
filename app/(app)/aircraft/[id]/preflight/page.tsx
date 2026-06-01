@@ -405,10 +405,17 @@ export default function PreflightPage() {
     });
   };
 
-  const handlePhotoFlowDone = async () => {
-    if (step.kind !== "photo_captured") return;
+  /**
+   * Persist a photo flow (photo + optional staged voice/text note) and advance
+   * to the confirmation screen. Shared by the photo-review "Done" button and by
+   * the photo→voice recorder's onComplete, so recording an attached voice note
+   * saves straight through — no bounce back to the review screen, no second Done.
+   * The quick tag set on the review screen before recording is carried through
+   * unchanged via `base.quickTag`.
+   */
+  const savePhotoFlow = async (base: PhotoFlowBase) => {
     if (!defaultAircraft) return;
-    const { file, previewUrl, quickTag, staged } = step;
+    const { file, previewUrl, quickTag, staged } = base;
     setTextNoteOpen(false);
     setStep({ kind: "uploading", mode: "photo" });
     try {
@@ -471,6 +478,12 @@ export default function PreflightPage() {
       URL.revokeObjectURL(previewUrl);
       setStep({ kind: "idle" });
     }
+  };
+
+  const handlePhotoFlowDone = () => {
+    if (step.kind !== "photo_captured") return;
+    const { file, previewUrl, quickTag, staged } = step;
+    void savePhotoFlow({ file, previewUrl, quickTag, staged });
   };
 
   const handleNoIssuesPhotoCaptured = (file: File, previewUrl: string) => {
@@ -788,8 +801,7 @@ export default function PreflightPage() {
       {step.kind === "photo_attaching_voice" && (
         <PhotoVoiceRecorder
           onComplete={(result) =>
-            setStep({
-              kind: "photo_captured",
+            void savePhotoFlow({
               file: step.base.file,
               previewUrl: step.base.previewUrl,
               quickTag: step.base.quickTag,
