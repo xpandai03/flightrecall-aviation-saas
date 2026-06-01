@@ -103,9 +103,11 @@ export function Confirmation({
         poll.phase === "failed" ||
         poll.phase === "timed_out"),
   );
-  // For voice we render an empty placeholder card while polling — no
-  // "Transcribing…" copy. The session is already saved (toast fired
-  // upstream); the transcript fills in when the poll completes.
+  // While the voice poll is in flight we show a "Transcribing…" affordance
+  // (below) and gate Done on this same flag, so the transcript — or the
+  // failure/timeout card — is always on screen before the user can leave.
+  // The session is already saved (toast fired upstream). voiceContentReady
+  // includes failed/timed_out, so the gate is bounded (~60s worst case).
   const showVoicePanel = isVoice && voiceContentReady;
   const showVoiceEmpty = isVoice && !voiceContentReady;
   const showExtractedPanel =
@@ -140,7 +142,12 @@ export function Confirmation({
           />
         )}
 
-        {showVoiceEmpty && <div aria-hidden className="min-h-[5rem]" />}
+        {showVoiceEmpty && (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground min-h-[5rem]">
+            <Loader2 className="size-4 animate-spin shrink-0" aria-hidden />
+            Transcribing…
+          </div>
+        )}
 
         {inputType === "photo" && photo && (
           <PhotoPanel
@@ -157,7 +164,12 @@ export function Confirmation({
       )}
 
       <div className="flex flex-col items-center gap-1.5">
-        <Button size="lg" onClick={onDone} className="rounded-full px-8 h-11">
+        <Button
+          size="lg"
+          onClick={onDone}
+          disabled={showVoiceEmpty}
+          className="rounded-full px-8 h-11"
+        >
           Done
         </Button>
         {showExtractedPanel && (
