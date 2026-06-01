@@ -62,7 +62,7 @@ export const SEVERITY_MAP: Record<string, IssueSeverityClass> = {
   stiff_control: "critical",
   tire: "cosmetic",
   tire_low: "cosmetic",
-  tire_worn: "cosmetic",
+  tire_worn: "critical",
   unusual_noise: "critical",
   unusual_resistance: "critical",
   vibration: "critical",
