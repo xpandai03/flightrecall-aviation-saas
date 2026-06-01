@@ -351,10 +351,11 @@ describe("issue taxonomy — severity_class (M3)", () => {
     expect(getSeverityForSlug("dent")).toBe("cosmetic");
     expect(getSeverityForSlug("scratch")).toBe("cosmetic");
     expect(getSeverityForSlug("loose_panel")).toBe("cosmetic");
-    expect(getSeverityForSlug("tire_worn")).toBe("cosmetic");
     expect(getSeverityForSlug("tire_low")).toBe("cosmetic");
 
     expect(getSeverityForSlug("oil")).toBe("critical");
+    // tire_worn reclassified cosmetic→critical (safety: worn tire can fail on takeoff/landing)
+    expect(getSeverityForSlug("tire_worn")).toBe("critical");
     expect(getSeverityForSlug("tire")).toBe("cosmetic");
   });
 
