@@ -11,7 +11,6 @@ import {
   PhotoCapture,
   PhotoPreview,
 } from "@/components/preflight/photo-capture";
-import { QuickTagPicker } from "@/components/preflight/quick-tag-picker";
 import { PhotoAttachmentChooser } from "@/components/preflight/photo-attachment-chooser";
 import { PhotoVoiceRecorder } from "@/components/preflight/photo-voice-recorder";
 import { PhotoNoteModal } from "@/components/preflight/photo-note-modal";
@@ -62,8 +61,11 @@ type PhotoFlowBase = {
   staged: PhotoStaged;
 };
 
-// State machine. Photo path: capture → photo_captured (tag + attachment) →
+// State machine. Photo path: capture → photo_captured (attachment) →
 // uploading → confirming → idle. Session is created on first save.
+// M4 Item 5: the manual quick-tag bucketing step is gone — voice notes
+// auto-classify via keyword extraction; the quickTag fields below are
+// retained (always null) only to feed display fallbacks gracefully.
 type Step =
   | { kind: "idle" }
   | { kind: "recording" }
@@ -72,12 +74,6 @@ type Step =
   | { kind: "no_issues_preview"; file: File; previewUrl: string }
   | { kind: "photo_captured"; file: File; previewUrl: string; quickTag: QuickTag | null; staged: PhotoStaged }
   | { kind: "photo_attaching_voice"; base: PhotoFlowBase }
-  | {
-      kind: "voice_tagging";
-      blob: Blob;
-      mimeType: string;
-      quickTag: QuickTag | null;
-    }
   | { kind: "uploading"; mode: InputType }
   | {
       kind: "confirming";
@@ -352,19 +348,12 @@ export default function PreflightPage() {
     else setStep({ kind: "no_issues_capturing" });
   };
 
-  const handleVoiceCaptured = (result: RecorderResult) => {
-    setStep({
-      kind: "voice_tagging",
-      blob: result.blob,
-      mimeType: result.mimeType,
-      quickTag: null,
-    });
-  };
-
-  const handleVoiceSave = async () => {
-    if (step.kind !== "voice_tagging") return;
+  // M4 Item 5: manual bucketing removed. A finished voice note saves
+  // straight through — the deterministic keyword extractor auto-classifies
+  // from the transcript (no scratch/dent/tire/oil/other prompt).
+  const handleVoiceCaptured = async (result: RecorderResult) => {
     if (!defaultAircraft) return;
-    const { blob, mimeType, quickTag } = step;
+    const { blob, mimeType } = result;
     setStep({ kind: "uploading", mode: "voice" });
     try {
       const session = await ensureSession("voice");
@@ -375,7 +364,6 @@ export default function PreflightPage() {
         media_type: "audio",
         file_name: name,
         mime_type: mimeType,
-        quick_tag: quickTag ?? undefined,
       });
       toast.success("Saved", {
         description: "Recording captured. Transcribing…",
@@ -429,13 +417,7 @@ export default function PreflightPage() {
         media_type: "photo",
         file_name: safeName,
         mime_type: file.type || "image/jpeg",
-        quick_tag: quickTag ?? undefined,
         note_text: staged?.kind === "text" ? staged.text : undefined,
-        // M4 Item 3: when a voice note is attached, defer the photo's
-        // quick_tag issue — the voice extraction owns issue creation (and
-        // the tag is applied as a fallback only if the voice yields none),
-        // so photo+voice is one observation with no duplicate issue.
-        defer_issue: staged?.kind === "voice" ? true : undefined,
       });
 
       let attachVoiceId: string | undefined;
@@ -687,20 +669,6 @@ export default function PreflightPage() {
         <VoiceRecorder onComplete={handleVoiceCaptured} onCancel={reset} />
       )}
 
-      {step.kind === "voice_tagging" && (
-        <QuickTagPicker
-          mode="voice"
-          value={step.quickTag}
-          onChange={(next) =>
-            setStep((prev) =>
-              prev.kind === "voice_tagging" ? { ...prev, quickTag: next } : prev,
-            )
-          }
-          onSave={handleVoiceSave}
-          onCancel={reset}
-        />
-      )}
-
       {step.kind === "capturing" && (
         <PhotoCapture onCaptured={handlePhotoCaptured} onCancel={reset} />
       )}
@@ -751,19 +719,6 @@ export default function PreflightPage() {
               setTextNoteOpen(false);
               setStep({ kind: "capturing" });
             }}
-          />
-          <QuickTagPicker
-            showActionFooter={false}
-            value={step.quickTag}
-            onChange={(next) =>
-              setStep((prev) =>
-                prev.kind === "photo_captured"
-                  ? { ...prev, quickTag: next }
-                  : prev,
-              )
-            }
-            onSave={() => {}}
-            onCancel={reset}
           />
           <PhotoAttachmentChooser
             onVoice={() =>

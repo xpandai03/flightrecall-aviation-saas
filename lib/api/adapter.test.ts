@@ -45,6 +45,33 @@ function session(
   };
 }
 
+describe("summarizeSession — quick_tag display fallback after M4 Item 5", () => {
+  it("a photo with NULL quick_tag (the new standard) degrades gracefully — no crash, status fallback", () => {
+    const green = session({
+      input_type: "photo",
+      status_color: "green",
+      media_assets: [{ media_type: "photo", quick_tag: null }],
+    });
+    expect(summarizeSession(green)).toBe("No issues reported");
+
+    const yellow = session({
+      input_type: "photo",
+      status_color: "yellow",
+      media_assets: [{ media_type: "photo", quick_tag: null }],
+    });
+    expect(summarizeSession(yellow)).toBe("Logged");
+  });
+
+  it("a legacy session that still has a quick_tag keeps labeling via QUICK_TAG_LABEL (column intact)", () => {
+    const s = session({
+      input_type: "photo",
+      status_color: "yellow",
+      media_assets: [{ media_type: "photo", quick_tag: "tire" }],
+    });
+    expect(summarizeSession(s)).toBe("Tire wear");
+  });
+});
+
 describe("summarizeSession — resolved issues do not read as current (M4 Item 4)", () => {
   it("an ACTIVE tracked issue still surfaces as the summary", () => {
     const s = session({ issue_observations: [obs("Oil Leak", "active")] });

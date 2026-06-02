@@ -3,7 +3,6 @@ import { cookies } from "next/headers";
 import { z } from "zod";
 import { createClient, createServiceRoleClient } from "@/utils/supabase/server";
 import { runTranscription, startTranscription } from "@/lib/transcription-job";
-import { upsertIssueForMedia } from "@/lib/issue-upsert";
 
 export const dynamic = "force-dynamic";
 
@@ -14,12 +13,6 @@ const completeSchema = z.object({
   quick_tag: z.enum(["scratch", "dent", "tire", "oil", "other"]).optional(),
   note_text: z.string().max(500).optional(),
   photo_attachment_media_id: z.string().uuid().optional(),
-  // M4 Item 3: photo+voice = one observation. When a voice note is being
-  // attached to this photo, the client sets defer_issue so the photo does
-  // NOT create its quick_tag issue here — voice extraction owns issue
-  // creation (and the quick_tag becomes a fallback the job applies only if
-  // the voice extracts nothing). quick_tag is still stored on the row.
-  defer_issue: z.boolean().optional(),
 });
 
 export async function POST(
@@ -130,33 +123,12 @@ export async function POST(
     );
   }
 
-  let issue_id: string | null | undefined = updated.issue_id;
-  let issue_error: string | undefined;
-  const effectiveQuickTag = parsed.data.quick_tag ?? updated.quick_tag;
-  if (
-    (updated.media_type === "photo" || updated.media_type === "audio") &&
-    effectiveQuickTag &&
-    !updated.issue_id &&
-    // M4 Item 3: when a voice note is being attached to this photo, do NOT
-    // create the quick_tag issue now — defer to the voice extraction job,
-    // which either binds the photo to the first extracted issue (voice
-    // wins) or, if the voice extracts nothing, applies the quick_tag as a
-    // fallback. Prevents a duplicate issue for one observation.
-    !parsed.data.defer_issue
-  ) {
-    const issueResult = await upsertIssueForMedia({
-      supabase,
-      media_asset_id: updated.id,
-      preflight_session_id: updated.preflight_session_id,
-      quick_tag: effectiveQuickTag,
-    });
-    if (issueResult.ok) {
-      issue_id = issueResult.issue_id;
-    } else {
-      issue_error = issueResult.error;
-      console.error("issue auto-create/update failed", issueResult.error);
-    }
-  }
+  // M4 Item 5: manual quick-tag bucketing removed. The standard flow no
+  // longer sends a quick_tag, so there is no synchronous issue creation
+  // here — issues come from voice keyword extraction (Item 2/3). The
+  // quick_tag column + the job's photo+voice fallback (Item 3) are kept;
+  // they simply never fire while nothing sets a tag. A photo with no voice
+  // therefore creates no issue (signed-off behavior).
 
   let voice_transcription_id: string | undefined;
   let photoIdToLink: string | null = null;
@@ -237,9 +209,9 @@ export async function POST(
     }
   }
 
+  // `issue_id` is already on `updated` (a media_assets column); no
+  // synchronous issue creation to merge in anymore.
   const responsePayload: Record<string, unknown> = { ...updated };
-  if (issue_id !== undefined) responsePayload.issue_id = issue_id;
-  if (issue_error) responsePayload.issue_error = issue_error;
   if (voice_transcription_id) {
     responsePayload.voice_transcription_id = voice_transcription_id;
   }
