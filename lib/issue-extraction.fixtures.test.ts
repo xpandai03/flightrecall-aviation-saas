@@ -128,6 +128,77 @@ const FIXTURES: Fixture[] = [
     expected: { type: "other", location: null },
     note: "edge case — generic 'broken' with no location resolves to the generic 'other' slug, never a wrong specific category",
   },
+
+  // --- M4 Item 2 — new keywords (Raunek/Zach signed-off) --------------
+  // One positive per genuinely-new keyword + adversarial negatives for
+  // the false-positive-prone additions.
+  {
+    input: "transponder not working",
+    expected: { type: "not_working", location: null },
+    note: "NEW keyword 'not working' → not_working (critical); no location keyword near 'transponder'",
+  },
+  {
+    input: "scratch on the right wing",
+    expected: { type: "scratch", location: "Right Wing" },
+    note: "NEW — bare 'scratch' was never a key (only scrape / rock chips / chipped paint reached the slug)",
+  },
+  {
+    input: "leaking from the cowling",
+    expected: { type: "leak_general", location: "Engine Area" },
+    note: "NEW keyword 'leaking' → leak_general (critical) when no oil/fuel prefix",
+  },
+  {
+    input: "oil leaking near the belly",
+    expected: { type: "oil_leak", location: "Fuselage" },
+    note: "'oil leak' substring still wins via longest-match-first — 'oil leaking' stays oil_leak (also critical), not leak_general",
+  },
+  {
+    input: "vibrating prop",
+    expected: { type: "vibration", location: null },
+    note: "NEW keyword 'vibrating' → vibration (critical); 'vibration' is not a substring of 'vibrating'",
+  },
+  {
+    input: "soft brakes on the right",
+    expected: { type: "brake_soft", location: null },
+    note: "NEW keyword 'soft brakes' → brake_soft (critical); contiguous key was 'brake soft' (wrong word order)",
+  },
+  {
+    input: "flickering avionics",
+    expected: { type: "flicker", location: "Cockpit" },
+    note: "'flickering' already extracts via substring of 'flicker'; locks it + the Cockpit pairing (flicker reclassified critical)",
+  },
+  {
+    input: "hole in the fuselage",
+    expected: { type: "hole", location: "Fuselage" },
+    note: "NEW keyword 'hole' → hole (critical); word-bounded so it cannot match inside 'whole'",
+  },
+  {
+    input: "damage on the left wing",
+    expected: { type: "damage", location: "Left Wing" },
+    note: "NEW keyword 'damage' → damage (critical) — emits because it pairs with a location",
+  },
+
+  // --- M4 Item 2 — adversarial negatives (must NOT extract) -----------
+  {
+    input: "no damage to report",
+    expected: null,
+    note: "'damage' is location-required (LOCATION_REQUIRED_KEYWORDS): unpaired → dropped, so the no-negation scanner doesn't emit a phantom critical issue",
+  },
+  {
+    input: "checked for damage",
+    expected: null,
+    note: "'damage' unpaired (no nearby location) → dropped",
+  },
+  {
+    input: "checked the whole wing",
+    expected: null,
+    note: "word-boundary guard — 'hole' must NOT match inside 'whole'; 'wing' alone is location-only → dropped",
+  },
+  {
+    input: "brakes feel fine",
+    expected: null,
+    note: "no brake keyword matches ('brake wear' / 'brake soft' / 'soft brakes' are the only keys; bare 'brakes' is not one)",
+  },
 ];
 
 describe("extractIssues — fixture regression cases", () => {

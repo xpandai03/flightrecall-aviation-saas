@@ -40,6 +40,21 @@ const PAIR_WINDOW_CHARS = 50;
  *  a paired location. */
 const SHORT_KEYWORD_MAX_LEN = 3;
 
+/** Keywords that must be word-bounded on BOTH sides regardless of length.
+ *  The length-based guard only covers keys ≤ SHORT_KEYWORD_MAX_LEN, so a
+ *  longer key that is a substring of a common word must be listed here.
+ *  "hole"/"holes" would otherwise match inside "whole"/"wholesale".
+ *  (M4 Item 2 — required before "hole" could be added safely.) */
+const WORD_BOUNDED_KEYWORDS = new Set<string>(["hole", "holes"]);
+
+/** Keywords dropped when they fail to pair with a nearby location,
+ *  regardless of length. "damage" is too generic to emit unpaired: with
+ *  no negation handling, "no damage to report" / "checked for damage"
+ *  would otherwise create phantom critical issues. Requiring a nearby
+ *  location keyword is the minimal safe gate (M4 Item 2). Mirrors the
+ *  unpaired-drop rule short keywords already get. */
+const LOCATION_REQUIRED_KEYWORDS = new Set<string>(["damage"]);
+
 /** Issue keyword → issue_types.slug. Longest match wins on overlap.
  *  Compound issue+location keys (e.g. "oil on belly") are deliberately
  *  absent: the location pairer below decomposes them into base issue
@@ -118,6 +133,34 @@ const ISSUE_KEYWORDS: Record<string, string> = {
   // loose_panel — acceptable, mirrors the worn -> tire_worn tradeoff.
   loose: "loose_panel",
   rusted: "corrosion",
+  // --- M4 Item 2 — keyword expansion (Raunek/Zach signed-off) ---------
+  // Per M4-punchlist-plan.md §Item 2.2. Four NEW generic-critical issue
+  // types (leak_general, not_working, damage, hole) are introduced rather
+  // than flipping the cosmetic catch-all "other" to critical — the latter
+  // would silently contradict the signed-off broken/torn = monitor
+  // decisions (both map to "other"). Severities live in BOTH
+  // lib/issue-taxonomy.ts SEVERITY_MAP AND migration
+  // 20260602120000_m4_keyword_expansion_severities.sql (sync rule).
+  "not working": "not_working",
+  // Bare "scratch" was never a key — only scrape / rock chips / chipped
+  // paint reached the scratch slug. Add the literal word (stays cosmetic).
+  scratch: "scratch",
+  // Generic leak. "oil leak" / "fuel leak" still win via longest-match-
+  // first; bare "leaking" (no oil/fuel prefix) maps to the generic type.
+  leaking: "leak_general",
+  // "vibration" is NOT a substring of "vibrating" (vibrat-ion vs
+  // vibrat-ing), so the present-tense form was missed.
+  vibrating: "vibration",
+  // The contiguous key is "brake soft"; pilots also say "soft brakes".
+  "soft brakes": "brake_soft",
+  // Withheld in M3 for false positives; now added behind guards:
+  //  - "damage" is in LOCATION_REQUIRED_KEYWORDS (dropped when unpaired)
+  //    so "no damage to report" / "checked for damage" do not emit.
+  //  - "hole"/"holes" are in WORD_BOUNDED_KEYWORDS so "whole"/"wholesale"
+  //    do not match.
+  damage: "damage",
+  hole: "hole",
+  holes: "hole",
 };
 
 /** Location keyword → canonical location label (matches the V1 spec
@@ -185,6 +228,11 @@ const ISSUE_NAME_BY_SLUG: Record<string, string> = {
   unusual_noise: "Unusual Noise",
   rough_engine: "Rough Engine",
   something_off: "Something Feels Off",
+  // M4 Item 2 — new generic-critical types.
+  leak_general: "General Leak",
+  not_working: "Not Working",
+  damage: "Damage",
+  hole: "Hole",
   // Legacy quick-tag slugs reachable via the M4 wish-list aliases above.
   scratch: "Scratch",
   other: "Other",
@@ -232,7 +280,8 @@ function scanKeywords<V>(
   const matches: Match<V>[] = [];
 
   for (const key of keysDesc) {
-    const requireWordBoundary = key.length <= SHORT_KEYWORD_MAX_LEN;
+    const requireWordBoundary =
+      key.length <= SHORT_KEYWORD_MAX_LEN || WORD_BOUNDED_KEYWORDS.has(key);
     let from = 0;
     while (from < text.length) {
       const idx = text.indexOf(key, from);
@@ -361,7 +410,11 @@ export function extractIssues(transcript: string): ExtractedIssue[] {
       location = locationMatches[pickedIdx].value;
     }
 
-    if (location === null && issue.keyword.length <= SHORT_KEYWORD_MAX_LEN) {
+    if (
+      location === null &&
+      (issue.keyword.length <= SHORT_KEYWORD_MAX_LEN ||
+        LOCATION_REQUIRED_KEYWORDS.has(issue.keyword))
+    ) {
       continue;
     }
 

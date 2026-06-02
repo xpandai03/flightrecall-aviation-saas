@@ -163,16 +163,15 @@ describe("internal vocabulary tables", () => {
     }
   });
 
-  it("ISSUE_KEYWORDS values match the V1 spec slug set (31 entries)", () => {
+  it("ISSUE_KEYWORDS values match the V1 spec slug set (35 entries)", () => {
     const slugs = new Set(Object.values(__testing__.ISSUE_KEYWORDS));
-    // 28 slugs from the M5 migration (oil_on_belly + oil_on_engine
-    // dropped in the M5 #2 corrective patch — the location pairer
-    // handles them) plus the legacy 'dent' slug = 29. The M3 release
-    // goodwill round added M4-list alias keywords that reach two more
-    // legacy quick-tag slugs: 'scratch' (scrape / rock chips / chipped
-    // paint) and 'other' (broken / torn). No new issue_types rows —
-    // both slugs already exist — so the count rose 29 -> 31.
-    expect(slugs.size).toBe(31);
+    // 31 after the M3 goodwill round (see git history). M4 Item 2 adds
+    // four NEW generic-critical issue types reachable from new keywords:
+    // leak_general (leaking), not_working (not working), damage (damage),
+    // hole (hole / holes) → 31 + 4 = 35. (vibrating→vibration,
+    // soft brakes→brake_soft and bare scratch→scratch reuse existing
+    // slugs, so they don't change the count.)
+    expect(slugs.size).toBe(35);
   });
 
   it("LOCATION_KEYWORDS canonicalizes to the V1 spec's 6 location groups", () => {
@@ -328,8 +327,9 @@ describe("extractIssues — drop unpaired short-keyword issues", () => {
 });
 
 describe("issue taxonomy — severity_class (M3)", () => {
-  it("SEVERITY_MAP covers every slug the API can return (33 issue_types rows)", () => {
-    expect(Object.keys(SEVERITY_MAP)).toHaveLength(33);
+  it("SEVERITY_MAP covers every slug the API can return (37 issue_types rows)", () => {
+    // 33 → 37: M4 Item 2 adds leak_general, not_working, damage, hole.
+    expect(Object.keys(SEVERITY_MAP)).toHaveLength(37);
   });
 
   it("every map entry is critical or cosmetic", () => {
@@ -350,13 +350,20 @@ describe("issue taxonomy — severity_class (M3)", () => {
 
     expect(getSeverityForSlug("dent")).toBe("cosmetic");
     expect(getSeverityForSlug("scratch")).toBe("cosmetic");
-    expect(getSeverityForSlug("loose_panel")).toBe("cosmetic");
-    expect(getSeverityForSlug("tire_low")).toBe("cosmetic");
+    // M4 Item 2 reclassified loose_panel + tire_low cosmetic→critical.
+    expect(getSeverityForSlug("loose_panel")).toBe("critical");
+    expect(getSeverityForSlug("tire_low")).toBe("critical");
 
     expect(getSeverityForSlug("oil")).toBe("critical");
     // tire_worn reclassified cosmetic→critical (safety: worn tire can fail on takeoff/landing)
     expect(getSeverityForSlug("tire_worn")).toBe("critical");
     expect(getSeverityForSlug("tire")).toBe("cosmetic");
+    // M4 Item 2 — flicker reclassified cosmetic→critical; new types critical.
+    expect(getSeverityForSlug("flicker")).toBe("critical");
+    expect(getSeverityForSlug("leak_general")).toBe("critical");
+    expect(getSeverityForSlug("not_working")).toBe("critical");
+    expect(getSeverityForSlug("damage")).toBe("critical");
+    expect(getSeverityForSlug("hole")).toBe("critical");
   });
 
   it("SEVERITY_MAP includes every slug referenced by ISSUE_KEYWORDS", () => {
