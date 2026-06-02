@@ -176,12 +176,21 @@ export type SummarizableSession = Pick<
  * Output is hard-capped at 60 chars + ellipsis.
  */
 export function summarizeSession(session: SummarizableSession): string {
-  // Tier 1: tracked-issue observations.
-  const observations = session.issue_observations ?? [];
-  if (observations.length > 0) {
+  // Tier 1: tracked-issue observations — but only those whose parent
+  // issue is still ACTIVE (M4 Item 4). A resolved (fixed/cleared) issue
+  // must not keep reading as a current problem in the recent-sessions
+  // summary. The observation rows are untouched (history stays intact);
+  // we simply stop surfacing resolved ones as the current summary, so the
+  // session falls through to the transcript/notes/quick-tag tiers instead
+  // (and still lists — sessions with only-resolved issues are never
+  // dropped). A null/missing joined issue is treated as not-active.
+  const activeObservations = (session.issue_observations ?? []).filter(
+    (o) => o.issue?.current_status === "active",
+  );
+  if (activeObservations.length > 0) {
     const names = Array.from(
       new Set(
-        observations
+        activeObservations
           .map((o) => o.issue?.issue_type?.name)
           .filter((n): n is string => Boolean(n)),
       ),

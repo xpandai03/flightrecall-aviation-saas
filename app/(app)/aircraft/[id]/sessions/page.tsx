@@ -344,13 +344,34 @@ function SessionDetail({ session }: { session: Session }) {
               Previous issue actions
             </div>
             <ul className="space-y-1.5">
-              {detail.issue_observations.map((obs) => (
-                <li key={obs.id} className="flex items-center gap-2 text-sm">
-                  <span className="size-1.5 rounded-full bg-sky-500 shrink-0" />
-                  <span className="font-medium">{obs.issue.issue_type.name}</span>
-                  <span className="text-muted-foreground">— {actionCopy(obs.action)}</span>
-                </li>
-              ))}
+              {detail.issue_observations.map((obs) => {
+                // M4 Item 4: a resolved (fixed/cleared) issue must not read
+                // as a current problem here. We keep the row (this is the
+                // session's audit history — including the "Marked fixed"
+                // event) but visually mark it resolved instead of deleting
+                // it, so the history stays intact.
+                const resolved = obs.issue.current_status === "resolved";
+                return (
+                  <li key={obs.id} className="flex items-center gap-2 text-sm">
+                    <span
+                      className={`size-1.5 rounded-full shrink-0 ${
+                        resolved ? "bg-muted-foreground/40" : "bg-sky-500"
+                      }`}
+                    />
+                    <span
+                      className={`font-medium ${
+                        resolved ? "text-muted-foreground line-through" : ""
+                      }`}
+                    >
+                      {obs.issue.issue_type.name}
+                    </span>
+                    <span className="text-muted-foreground">— {actionCopy(obs.action)}</span>
+                    {resolved && (
+                      <span className="text-xs text-muted-foreground">· resolved</span>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           </section>
         )}
