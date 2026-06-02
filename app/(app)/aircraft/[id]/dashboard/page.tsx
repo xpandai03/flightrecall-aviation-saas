@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import {
   ActiveIssuesStack,
+  DashboardChecklistCard,
   SessionRowItem,
   StatusCard,
 } from "@/components/dashboard";
@@ -122,6 +123,7 @@ export default async function DashboardPage({
           <span className="text-text-primary">{firstName}</span>
         </h1>
       )}
+      <DashboardChecklistCard aircraftId={aircraftId} />
       <StatusCard
         tailNumber={aircraft.tail_number}
         aircraftModel={aircraft.aircraft_type}

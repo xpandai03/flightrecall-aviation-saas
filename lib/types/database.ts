@@ -52,6 +52,20 @@ export type MediaAsset = {
   voice_transcription_id: string | null;
   /** Photo-only: optional text note (max 500 chars app-side). Mutually exclusive with voice attachment. */
   note_text: string | null;
+  // Aircraft pre-flight checklist images reuse media_assets. Optional &
+  // additive so existing observation-media usage is unaffected. A
+  // checklist row sets aircraft_id + asset_role='checklist' and has a
+  // null preflight_session_id (see 20260602130000_m4_aircraft_checklist_media.sql).
+  aircraft_id?: string | null;
+  asset_role?: "observation" | "checklist";
+  created_at: string;
+};
+
+/** A view-ready aircraft checklist image (media_asset + signed URL). */
+export type ChecklistImage = {
+  id: string;
+  signed_url: string | null;
+  file_name: string | null;
   created_at: string;
 };
 
