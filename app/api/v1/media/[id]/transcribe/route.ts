@@ -85,7 +85,6 @@ export async function POST(
           media_asset_id: media.id,
           storage_key: media.storage_key,
           file_name: media.file_name,
-          skipKeywordExtraction: false,
         });
   });
 

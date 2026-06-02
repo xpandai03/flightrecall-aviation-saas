@@ -7,6 +7,8 @@ import {
 } from "@/lib/issue-extraction";
 import { generateIssueSummary } from "@/lib/issue-summarization";
 import { selectIssueForExtraction } from "@/lib/issue-resurrection";
+import { upsertIssueForMedia } from "@/lib/issue-upsert";
+import { decidePhotoVoiceBinding } from "@/lib/photo-voice-binding";
 
 const BUCKET = "flight-recall-media";
 
@@ -76,8 +78,14 @@ type RunArgs = {
   media_asset_id: string;
   storage_key: string;
   file_name: string | null;
-  /** Photo-attached voice: transcribe only — no extraction or description backfill. */
-  skipKeywordExtraction?: boolean;
+  /**
+   * M4 Item 3 — set for a photo-attached voice note (the photo's media
+   * asset id). Extraction always runs now; when this is present the job
+   * binds the photo to the FIRST extracted issue (voice wins), or — if the
+   * voice extracts nothing — applies the photo's quick_tag as a fallback
+   * issue. Undefined for a standalone voice note.
+   */
+  photoAttachmentMediaId?: string;
 };
 
 /**
@@ -95,7 +103,7 @@ export async function runTranscription(args: RunArgs): Promise<void> {
     media_asset_id,
     storage_key,
     file_name,
-    skipKeywordExtraction = false,
+    photoAttachmentMediaId,
   } = args;
 
   console.log("[transcription] entry", {
@@ -150,49 +158,98 @@ export async function runTranscription(args: RunArgs): Promise<void> {
     // prefers voice_transcriptions[0].transcript_text and falls back to
     // the session column for legacy single-input rows.
 
-    if (!skipKeywordExtraction) {
-      // M2 Phase 2: deterministic keyword extraction. Best-effort —
-      // extraction failures are logged but never flip the transcription
-      // to 'failed'. Transcription is the higher-priority path; extracted
-      // issues are an additive convenience.
-      try {
-        const extracted = extractIssues(result.text);
-        if (extracted.length > 0) {
-          await persistExtractedIssues(supabase, {
-            preflight_session_id,
-            extracted,
-          });
-        }
-      } catch (err) {
-        console.error("[transcription] extraction failed", {
-          voice_transcription_id,
-          error: err instanceof Error ? err.message : String(err),
+    // M2 Phase 2 / M4 Item 3: deterministic keyword extraction. Runs for
+    // BOTH standalone and photo-attached voice now (the old
+    // skipKeywordExtraction gate is gone). Best-effort — extraction
+    // failures are logged but never flip the transcription to 'failed'.
+    let firstExtractedIssueId: string | null = null;
+    try {
+      const extracted = extractIssues(result.text);
+      if (extracted.length > 0) {
+        firstExtractedIssueId = await persistExtractedIssues(supabase, {
+          preflight_session_id,
+          extracted,
         });
       }
+    } catch (err) {
+      console.error("[transcription] extraction failed", {
+        voice_transcription_id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
 
-      // If this audio was tagged at upload time, the issue exists with a null
-      // description. Backfill it from the transcript (overwrite unconditionally
-      // so the most recent voice note wins). Best-effort.
-      const { data: media, error: mediaErr } = await supabase
-        .from("media_assets")
-        .select("issue_id")
-        .eq("id", media_asset_id)
-        .maybeSingle();
-      if (mediaErr) {
-        console.error("[transcription] issue lookup failed", {
-          media_asset_id,
-          error: mediaErr.message,
+    // If this audio was tagged at upload time, the issue exists with a null
+    // description. Backfill it from the transcript (overwrite unconditionally
+    // so the most recent voice note wins). Best-effort. (Photo-attached
+    // voice has no issue_id on the audio row, so this no-ops there.)
+    const { data: media, error: mediaErr } = await supabase
+      .from("media_assets")
+      .select("issue_id")
+      .eq("id", media_asset_id)
+      .maybeSingle();
+    if (mediaErr) {
+      console.error("[transcription] issue lookup failed", {
+        media_asset_id,
+        error: mediaErr.message,
+      });
+    } else if (media?.issue_id) {
+      const { error: descErr } = await supabase
+        .from("issues")
+        .update({ description: result.text.slice(0, 500) })
+        .eq("id", media.issue_id);
+      if (descErr) {
+        console.error("[transcription] description backfill failed", {
+          issue_id: media.issue_id,
+          error: descErr.message,
         });
-      } else if (media?.issue_id) {
-        const { error: descErr } = await supabase
-          .from("issues")
-          .update({ description: result.text.slice(0, 500) })
-          .eq("id", media.issue_id);
-        if (descErr) {
-          console.error("[transcription] description backfill failed", {
-            issue_id: media.issue_id,
-            error: descErr.message,
+      }
+    }
+
+    // M4 Item 3 — photo+voice as ONE observation. The photo's quick_tag
+    // issue was deferred at upload (defer_issue), so binding here can never
+    // produce a duplicate. decidePhotoVoiceBinding encodes: voice wins
+    // (bind first extracted issue), else quick_tag fallback, else nothing.
+    if (photoAttachmentMediaId) {
+      const { data: photo, error: photoErr } = await supabase
+        .from("media_assets")
+        .select("quick_tag, issue_id")
+        .eq("id", photoAttachmentMediaId)
+        .maybeSingle();
+      if (photoErr) {
+        console.error("[transcription] photo lookup failed", {
+          photoAttachmentMediaId,
+          error: photoErr.message,
+        });
+      } else {
+        const binding = decidePhotoVoiceBinding({
+          firstExtractedIssueId,
+          photoQuickTag: photo?.quick_tag ?? null,
+          photoExistingIssueId: photo?.issue_id ?? null,
+        });
+        if (binding.action === "bind") {
+          const { error: bindErr } = await supabase
+            .from("media_assets")
+            .update({ issue_id: binding.issueId })
+            .eq("id", photoAttachmentMediaId);
+          if (bindErr) {
+            console.error("[transcription] photo issue bind failed", {
+              photoAttachmentMediaId,
+              error: bindErr.message,
+            });
+          }
+        } else if (binding.action === "fallback") {
+          const fallback = await upsertIssueForMedia({
+            supabase,
+            media_asset_id: photoAttachmentMediaId,
+            preflight_session_id,
+            quick_tag: binding.quickTag,
           });
+          if (!fallback.ok) {
+            console.error("[transcription] quick_tag fallback failed", {
+              photoAttachmentMediaId,
+              error: fallback.error,
+            });
+          }
         }
       }
     }
@@ -224,6 +281,10 @@ const RAW_TRANSCRIPT_MAX_CHARS = 4_000;
  *
  * Errors per-issue are logged and the loop continues — one bad slug
  * lookup shouldn't drop the rest of the extracted issues.
+ *
+ * Returns the id of the FIRST successfully-persisted issue (in transcript
+ * order), or null if none persisted. The caller uses it to bind a
+ * photo-attached observation to its first issue (M4 Item 3, decision 1).
  */
 async function persistExtractedIssues(
   supabase: SupabaseClient,
@@ -231,7 +292,7 @@ async function persistExtractedIssues(
     preflight_session_id: string;
     extracted: ExtractedIssue[];
   },
-): Promise<void> {
+): Promise<string | null> {
   const { preflight_session_id, extracted } = args;
 
   const { data: session, error: sesErr } = await supabase
@@ -244,16 +305,18 @@ async function persistExtractedIssues(
       preflight_session_id,
       error: sesErr?.message,
     });
-    return;
+    return null;
   }
 
+  let firstIssueId: string | null = null;
   for (const ex of extracted) {
     try {
-      await persistOne(supabase, {
+      const id = await persistOne(supabase, {
         aircraft_id: session.aircraft_id,
         preflight_session_id,
         extracted: ex,
       });
+      if (firstIssueId === null && id) firstIssueId = id;
     } catch (err) {
       console.error("[extraction] issue persist failed", {
         type_slug: ex.type_slug,
@@ -261,6 +324,7 @@ async function persistExtractedIssues(
       });
     }
   }
+  return firstIssueId;
 }
 
 async function persistOne(
@@ -270,7 +334,7 @@ async function persistOne(
     preflight_session_id: string;
     extracted: ExtractedIssue;
   },
-): Promise<void> {
+): Promise<string | null> {
   const { aircraft_id, preflight_session_id, extracted } = args;
 
   // Resolve issue_type by slug. Defensive: spec slugs should all exist
@@ -285,7 +349,7 @@ async function persistOne(
     console.error("[extraction] unknown issue_type slug", {
       type_slug: extracted.type_slug,
     });
-    return;
+    return null;
   }
 
   // Lookup every issue row matching (aircraft, type, location),
@@ -364,7 +428,9 @@ async function persistOne(
   if (obsLookupErr) {
     throw new Error(`observation lookup: ${obsLookupErr.message}`);
   }
-  if (existingObs) return;
+  // Idempotent re-run: the issue already exists for this session. Still
+  // return its id so a photo-attached observation can bind to it.
+  if (existingObs) return issue_id;
 
   const { error: obsErr } = await supabase.from("issue_observations").insert({
     issue_id,
@@ -383,4 +449,6 @@ async function persistOne(
       message: err instanceof Error ? err.message : String(err),
     });
   });
+
+  return issue_id;
 }

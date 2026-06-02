@@ -15,6 +15,7 @@ export async function completeMediaUpload(
     quick_tag?: QuickTag;
     note_text?: string;
     photo_attachment_media_id?: string;
+    defer_issue?: boolean;
   } = {},
 ): Promise<CompleteResponse> {
   const r = await fetch(`/api/v1/media/${mediaAssetId}/complete`, {
@@ -52,6 +53,7 @@ export async function uploadMedia(args: {
   quick_tag?: QuickTag;
   note_text?: string;
   photo_attachment_media_id?: string;
+  defer_issue?: boolean;
 }): Promise<UploadOutcome> {
   const minted = await requestUploadUrl({
     preflight_session_id: args.preflight_session_id,
@@ -75,6 +77,7 @@ export async function uploadMedia(args: {
     quick_tag: args.quick_tag,
     note_text: args.note_text,
     photo_attachment_media_id: args.photo_attachment_media_id,
+    defer_issue: args.defer_issue,
   });
 
   return {

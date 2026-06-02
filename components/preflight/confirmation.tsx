@@ -110,8 +110,17 @@ export function Confirmation({
   // includes failed/timed_out, so the gate is bounded (~60s worst case).
   const showVoicePanel = isVoice && voiceContentReady;
   const showVoiceEmpty = isVoice && !voiceContentReady;
+  // M4 Item 3: a photo with an attached voice note now classifies, so the
+  // extracted-issues panel surfaces on the photo path too (once the voice
+  // poll completes). The photo path keeps its own "Transcribing…"
+  // affordance in PhotoPanel and is not gated by showVoiceEmpty (B work
+  // unchanged — Done stays enabled on the photo path as before).
+  const isPhotoVoice =
+    inputType === "photo" && photo?.attachment?.kind === "voice";
   const showExtractedPanel =
-    isVoice && poll?.phase === "completed" && Boolean(sessionId);
+    (isVoice || isPhotoVoice) &&
+    poll?.phase === "completed" &&
+    Boolean(sessionId);
 
 
   return (

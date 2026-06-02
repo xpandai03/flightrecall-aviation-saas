@@ -1,103 +1,9 @@
 import { NextResponse, after } from "next/server";
 import { cookies } from "next/headers";
 import { z } from "zod";
-import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient, createServiceRoleClient } from "@/utils/supabase/server";
 import { runTranscription, startTranscription } from "@/lib/transcription-job";
-import { selectIssueForExtraction } from "@/lib/issue-resurrection";
-
-async function upsertIssueForMedia(args: {
-  supabase: SupabaseClient;
-  media_asset_id: string;
-  preflight_session_id: string;
-  quick_tag: string;
-}): Promise<{ ok: true; issue_id: string } | { ok: false; error: string }> {
-  const { supabase, media_asset_id, preflight_session_id, quick_tag } = args;
-
-  const { data: type, error: typeErr } = await supabase
-    .from("issue_types")
-    .select("id")
-    .eq("slug", quick_tag)
-    .maybeSingle();
-  if (typeErr) return { ok: false, error: typeErr.message };
-  if (!type) return { ok: false, error: `unknown issue_type slug: ${quick_tag}` };
-
-  const { data: session, error: sesErr } = await supabase
-    .from("preflight_sessions")
-    .select("id, aircraft_id, created_at")
-    .eq("id", preflight_session_id)
-    .maybeSingle();
-  if (sesErr) return { ok: false, error: sesErr.message };
-  if (!session) return { ok: false, error: "session not found" };
-
-  // Match every issue row for (aircraft, type) with a null location —
-  // the legacy quick-tag path never sets location. No .maybeSingle():
-  // a resolved row and an active row may now coexist for the same key.
-  // selectIssueForExtraction reuses only an ACTIVE row, so a photo
-  // quick-tag never re-activates a resolved issue — it inserts a fresh
-  // one instead.
-  const { data: candidates, error: lookupErr } = await supabase
-    .from("issues")
-    .select("id, current_status")
-    .eq("aircraft_id", session.aircraft_id)
-    .eq("issue_type_id", type.id)
-    .is("location", null);
-  if (lookupErr) return { ok: false, error: lookupErr.message };
-
-  const decision = selectIssueForExtraction(candidates ?? []);
-
-  let issue_id: string;
-  if (decision.action === "update") {
-    const { data: updated, error: uErr } = await supabase
-      .from("issues")
-      .update({
-        last_seen_at: new Date().toISOString(),
-        current_status: "active",
-        resolved_at: null,
-      })
-      .eq("id", decision.id)
-      .select("id")
-      .single();
-    if (uErr || !updated) {
-      return { ok: false, error: uErr?.message ?? "issue update failed" };
-    }
-    issue_id = updated.id;
-  } else {
-    const nowIso = new Date().toISOString();
-    const { data: created, error: cErr } = await supabase
-      .from("issues")
-      .insert({
-        aircraft_id: session.aircraft_id,
-        issue_type_id: type.id,
-        first_seen_at: nowIso,
-        last_seen_at: nowIso,
-        current_status: "active",
-      })
-      .select("id")
-      .single();
-    if (cErr || !created) {
-      return { ok: false, error: cErr?.message ?? "issue insert failed" };
-    }
-    issue_id = created.id;
-  }
-
-  const { error: linkErr } = await supabase
-    .from("media_assets")
-    .update({ issue_id })
-    .eq("id", media_asset_id);
-  if (linkErr) return { ok: false, error: linkErr.message };
-
-  const { error: obsErr } = await supabase
-    .from("issue_observations")
-    .insert({
-      issue_id,
-      preflight_session_id,
-      action: "logged",
-    });
-  if (obsErr) return { ok: false, error: obsErr.message };
-
-  return { ok: true, issue_id };
-}
+import { upsertIssueForMedia } from "@/lib/issue-upsert";
 
 export const dynamic = "force-dynamic";
 
@@ -108,6 +14,12 @@ const completeSchema = z.object({
   quick_tag: z.enum(["scratch", "dent", "tire", "oil", "other"]).optional(),
   note_text: z.string().max(500).optional(),
   photo_attachment_media_id: z.string().uuid().optional(),
+  // M4 Item 3: photo+voice = one observation. When a voice note is being
+  // attached to this photo, the client sets defer_issue so the photo does
+  // NOT create its quick_tag issue here — voice extraction owns issue
+  // creation (and the quick_tag becomes a fallback the job applies only if
+  // the voice extracts nothing). quick_tag is still stored on the row.
+  defer_issue: z.boolean().optional(),
 });
 
 export async function POST(
@@ -224,7 +136,13 @@ export async function POST(
   if (
     (updated.media_type === "photo" || updated.media_type === "audio") &&
     effectiveQuickTag &&
-    !updated.issue_id
+    !updated.issue_id &&
+    // M4 Item 3: when a voice note is being attached to this photo, do NOT
+    // create the quick_tag issue now — defer to the voice extraction job,
+    // which either binds the photo to the first extracted issue (voice
+    // wins) or, if the voice extracts nothing, applies the quick_tag as a
+    // fallback. Prevents a duplicate issue for one observation.
+    !parsed.data.defer_issue
   ) {
     const issueResult = await upsertIssueForMedia({
       supabase,
@@ -241,7 +159,6 @@ export async function POST(
   }
 
   let voice_transcription_id: string | undefined;
-  let skipKeywordExtraction = false;
   let photoIdToLink: string | null = null;
 
   if (updated.media_type === "audio") {
@@ -263,7 +180,9 @@ export async function POST(
         );
       }
       photoIdToLink = photoRow.id;
-      skipKeywordExtraction = true;
+      // M4 Item 3: photo-attached voice now RUNS extraction (was skipped).
+      // photoIdToLink is passed to the job so it binds the photo to the
+      // first extracted issue, or falls back to the photo's quick_tag.
     }
 
     const start = await startTranscription({
@@ -310,7 +229,9 @@ export async function POST(
           media_asset_id: updated.id,
           storage_key: updated.storage_key,
           file_name: updated.file_name,
-          skipKeywordExtraction,
+          // When set, the job binds this photo to the first extracted
+          // issue (voice wins) or applies the photo's quick_tag fallback.
+          photoAttachmentMediaId: photoIdToLink ?? undefined,
         });
       });
     }

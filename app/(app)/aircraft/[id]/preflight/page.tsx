@@ -431,6 +431,11 @@ export default function PreflightPage() {
         mime_type: file.type || "image/jpeg",
         quick_tag: quickTag ?? undefined,
         note_text: staged?.kind === "text" ? staged.text : undefined,
+        // M4 Item 3: when a voice note is attached, defer the photo's
+        // quick_tag issue — the voice extraction owns issue creation (and
+        // the tag is applied as a fallback only if the voice yields none),
+        // so photo+voice is one observation with no duplicate issue.
+        defer_issue: staged?.kind === "voice" ? true : undefined,
       });
 
       let attachVoiceId: string | undefined;
