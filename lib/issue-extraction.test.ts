@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { __testing__, extractIssues } from "@/lib/issue-extraction";
-import { getSeverityForSlug, SEVERITY_MAP } from "@/lib/issue-taxonomy";
+import {
+  getSeverityForSlug,
+  LOCATION_LABELS,
+  SEVERITY_MAP,
+} from "@/lib/issue-taxonomy";
 
 /**
  * Tests-as-spec for the V1 keyword extraction logic.
@@ -68,7 +72,8 @@ describe("extractIssues — same issue type at different locations", () => {
 
     expect(slugs).toEqual(["oil_leak", "oil_leak"]);
     expect(locations).toContain("Fuselage");
-    expect(locations).toContain("Engine Area");
+    // M4 Item 1: "engine cowling" now resolves to the precise Engine Cowl.
+    expect(locations).toContain("Engine Cowl");
   });
 });
 
@@ -174,19 +179,43 @@ describe("internal vocabulary tables", () => {
     expect(slugs.size).toBe(35);
   });
 
-  it("LOCATION_KEYWORDS canonicalizes to the V1 spec's 6 location groups", () => {
-    const labels = new Set(Object.values(__testing__.LOCATION_KEYWORDS));
-    expect(labels).toEqual(
-      new Set([
-        "Left Wing",
-        "Right Wing",
-        "Fuselage",
-        "Engine Area",
-        "Tail",
-        "Landing Gear",
-        "Cockpit",
-      ]),
-    );
+  it("every LOCATION_KEYWORDS value is a registered LOCATION_LABEL (sync invariant)", () => {
+    // M4 Item 1: the scanner and the picker must not drift. Every value
+    // the extractor can emit must be a real label.
+    const labelSet = new Set<string>(LOCATION_LABELS);
+    for (const value of Object.values(__testing__.LOCATION_KEYWORDS)) {
+      expect(labelSet.has(value)).toBe(true);
+    }
+  });
+
+  it("retains the coarse fallback zones (no previously-working zone returns null)", () => {
+    const values = new Set(Object.values(__testing__.LOCATION_KEYWORDS));
+    for (const coarse of [
+      "Cockpit",
+      "Engine Area",
+      "Fuselage",
+      "Landing Gear",
+      "Left Wing",
+      "Right Wing",
+      "Tail",
+    ]) {
+      expect(values.has(coarse)).toBe(true);
+    }
+  });
+
+  it("picker-only cockpit instruments are NOT in the voice scanner", () => {
+    // These exist in LOCATION_LABELS (manual pick) but must never be
+    // keyword-scanned — short/ambiguous panel words flood false positives.
+    const values = new Set(Object.values(__testing__.LOCATION_KEYWORDS));
+    for (const pickerOnly of [
+      "Mixture Control",
+      "Throttle Control",
+      "Turn Coordinator",
+      "Glove Box",
+    ]) {
+      expect(new Set<string>(LOCATION_LABELS).has(pickerOnly)).toBe(true);
+      expect(values.has(pickerOnly)).toBe(false);
+    }
   });
 });
 
@@ -256,21 +285,21 @@ describe("extractIssues — real-world Whisper transcripts (production cases)", 
     });
   });
 
-  it("tire worn + landing-gear location", () => {
+  it("tire worn + precise gear location (M4 Item 1: 'right main' → Right Main Gear)", () => {
     const result = extractIssues("Tire worn on the right main");
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({
       type_slug: "tire_worn",
-      location: "Landing Gear",
+      location: "Right Main Gear",
     });
   });
 
-  it("bare 'oil' + alternate fuselage/engine-area location ('cowling')", () => {
+  it("bare 'oil' + 'cowling' → Engine Cowl (M4 Item 1: precise cowl)", () => {
     const result = extractIssues("Some oil on the cowling today");
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({
       type_slug: "oil_leak",
-      location: "Engine Area",
+      location: "Engine Cowl",
     });
   });
 });

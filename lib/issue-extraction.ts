@@ -43,9 +43,20 @@ const SHORT_KEYWORD_MAX_LEN = 3;
 /** Keywords that must be word-bounded on BOTH sides regardless of length.
  *  The length-based guard only covers keys ≤ SHORT_KEYWORD_MAX_LEN, so a
  *  longer key that is a substring of a common word must be listed here.
- *  "hole"/"holes" would otherwise match inside "whole"/"wholesale".
- *  (M4 Item 2 — required before "hole" could be added safely.) */
-const WORD_BOUNDED_KEYWORDS = new Set<string>(["hole", "holes"]);
+ *  - M4 Item 2 (issue keys): "hole"/"holes" vs "whole"/"wholesale".
+ *  - M4 Item 1 (location keys): "gear" vs "gearbox"; "cowl" vs "scowl";
+ *    "door"/"doors" vs "indoor"/"outdoors"; "yoke" vs "yokel"; "cabin"
+ *    vs "cabinet". Each still matches as a standalone word. */
+const WORD_BOUNDED_KEYWORDS = new Set<string>([
+  "hole",
+  "holes",
+  "gear",
+  "cowl",
+  "door",
+  "doors",
+  "yoke",
+  "cabin",
+]);
 
 /** Keywords dropped when they fail to pair with a nearby location,
  *  regardless of length. "damage" is too generic to emit unpaired: with
@@ -163,34 +174,116 @@ const ISSUE_KEYWORDS: Record<string, string> = {
   holes: "hole",
 };
 
-/** Location keyword → canonical location label (matches the V1 spec
- *  groupings; multiple keywords can resolve to the same label). */
+/** Location keyword → canonical location label (M4 Item 1, Raunek/Zach
+ *  signed-off; see M4-punchlist-plan.md §Item 1). Multiple keywords can
+ *  resolve to the same label. Longest-match-first (sortedKeysDesc) makes
+ *  precise multi-word cues win over their coarse components ("right main
+ *  tire" beats "right main"; "engine cowling" beats "engine"/"cowling").
+ *
+ *  Every value here MUST also appear in LOCATION_LABELS (lib/issue-
+ *  taxonomy.ts). LOCATION_LABELS additionally carries PICKER-ONLY cockpit
+ *  instruments that are deliberately absent here — short/ambiguous panel
+ *  words ("clock", "panel") would flood the substring scanner with false
+ *  positives, so they are manual-select only. */
 const LOCATION_KEYWORDS: Record<string, string> = {
-  // Wings
+  // --- Wings + control surfaces --------------------------------------
+  "left wing tip": "Left Wing Tip",
+  "right wing tip": "Right Wing Tip",
+  "left wingtip": "Left Wing Tip",
+  "right wingtip": "Right Wing Tip",
   "left wing": "Left Wing",
   "left side wing": "Left Wing",
   "wing left": "Left Wing",
   "right wing": "Right Wing",
   "right side wing": "Right Wing",
-  // Fuselage
+  "wing strut": "Wing Strut",
+  "left aileron": "Left Aileron",
+  "right aileron": "Right Aileron",
+  "left flap": "Left Flap",
+  "right flap": "Right Flap",
+  // --- Fuselage / cabin / doors --------------------------------------
   fuselage: "Fuselage",
   belly: "Fuselage",
   body: "Fuselage",
-  // Engine area
+  cabin: "Cabin",
+  windshield: "Windshield",
+  "static port": "Static Port",
+  "pitot tube": "Pitot Tube",
+  pitot: "Pitot Tube",
+  antennas: "Antennas",
+  antenna: "Antennas",
+  // Doors are handed: passenger = right, pilot = left. Bare "door"/"doors"
+  // fall back to a coarse "Door" (word-bounded — see WORD_BOUNDED_KEYWORDS
+  // — so "indoor"/"outdoors" don't mis-trigger).
+  "passenger side door": "Right Door",
+  "passenger door": "Right Door",
+  "passenger side": "Right Door",
+  "pilot side door": "Left Door",
+  "pilot door": "Left Door",
+  "pilot side": "Left Door",
+  "left door": "Left Door",
+  "right door": "Right Door",
+  door: "Door",
+  doors: "Door",
+  // --- Engine / nose -------------------------------------------------
+  // "Engine Cowl" is canonical; cowling/cowl/engine cowling are synonyms.
+  // "lower cowling" is its own precise sub-region. Bare "engine"/"front"
+  // stay on the coarse Engine Area zone (unchanged) to preserve existing
+  // extractions.
+  "engine cowling": "Engine Cowl",
+  "engine cowl": "Engine Cowl",
+  "lower cowling": "Lower Cowling",
+  "lower cowl": "Lower Cowling",
+  cowling: "Engine Cowl",
+  cowl: "Engine Cowl",
+  propeller: "Propeller",
   engine: "Engine Area",
-  cowling: "Engine Area",
   front: "Engine Area",
-  // Tail
+  // --- Tail / empennage ----------------------------------------------
+  // "empennage" is a synonym for the coarse Tail; specific surfaces get
+  // their own labels.
+  "vertical stabilizer": "Vertical Stabilizer",
+  "horizontal stabilizer": "Horizontal Stabilizer",
+  "trim tab": "Trim Tab",
+  rudder: "Rudder",
+  elevator: "Elevator",
   tail: "Tail",
   empennage: "Tail",
-  "vertical stabilizer": "Tail",
-  "horizontal stabilizer": "Tail",
-  // Landing gear
-  "nose gear": "Landing Gear",
+  // --- Landing gear (precise; coarse fallback for bare gear) ---------
+  // "right main tire"/"left main tire" prefer the TIRE reading (the
+  // longer key wins via longest-match-first) — Zach distinguishes a worn
+  // tire from the gear leg. "right main"/"left main" (no "tire") resolve
+  // to the gear leg. Bare "gear"/"main gear"/"landing gear" → coarse.
+  "right main tire": "Right Tire",
+  "left main tire": "Left Tire",
+  "right main gear": "Right Main Gear",
+  "left main gear": "Left Main Gear",
+  "right main": "Right Main Gear",
+  "left main": "Left Main Gear",
+  "nose tire": "Nose Tire",
+  "right tire": "Right Tire",
+  "left tire": "Left Tire",
+  "nose gear": "Nose Gear",
+  "nose wheel": "Nose Gear",
   "main gear": "Landing Gear",
-  "left main": "Landing Gear",
-  "right main": "Landing Gear",
-  // Cockpit
+  "landing gear": "Landing Gear",
+  gear: "Landing Gear",
+  // --- Cockpit (curated voice subset + coarse catch-all) -------------
+  // Voice-extractable instruments only. The rest of the 46-item panel is
+  // PICKER-ONLY (LOCATION_LABELS, not here).
+  "annunciator panel": "Annunciator Panel",
+  annunciator: "Annunciator Panel",
+  "attitude indicator": "Attitude Indicator",
+  "airspeed indicator": "Airspeed Indicator",
+  airspeed: "Airspeed Indicator",
+  altimeter: "Altimeter",
+  transponder: "Transponder",
+  autopilot: "Autopilot",
+  "parking brake": "Parking Brake",
+  "angle of attack indicator": "Angle of Attack Indicator",
+  "angle of attack": "Angle of Attack Indicator",
+  yoke: "Yoke",
+  cockpit: "Cockpit",
   panel: "Cockpit",
   avionics: "Cockpit",
   inside: "Cockpit",

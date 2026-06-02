@@ -1,27 +1,117 @@
 import type { IssueSeverityClass } from "@/lib/types/database";
 
 /**
- * UI-facing taxonomy view: the canonical location labels surfaced by
- * the M5 keyword extractor, exported as a sorted list for dropdowns
- * and other selection UIs.
+ * UI-facing taxonomy view: the canonical location labels for dropdowns
+ * and other selection UIs (M4 Item 1; see M4-punchlist-plan.md §Item 1).
  *
  * Kept in its own module (rather than re-exported from
  * lib/issue-extraction.ts) so the extraction pipeline stays pure
  * pipeline-layer — UI consumers never reach into the extractor's
  * internals.
  *
- * Source-of-truth: matches the unique values of LOCATION_KEYWORDS in
- * lib/issue-extraction.ts and the labels written to issues.location.
- * If a new location is added there, add it here too.
+ * Two tiers:
+ *  - VOICE labels: every unique value of LOCATION_KEYWORDS in
+ *    lib/issue-extraction.ts (keyword-scannable AND pickable). Keep these
+ *    in sync with that table.
+ *  - PICKER-ONLY labels: the remaining Cessna 172R N9520D panel
+ *    instruments from the 46-item equipment list. Manually selectable but
+ *    deliberately NOT in LOCATION_KEYWORDS — short/ambiguous panel words
+ *    ("clock", "panel") would flood the substring scanner.
+ *
+ * Grounded in the two exterior diagrams + the instrument-panel PDF +
+ * Zach's named examples. No invented names. Grouped by zone for picker UX.
  */
 export const LOCATION_LABELS = [
+  // ---- Coarse zones (catch-alls) ----
   "Cockpit",
   "Engine Area",
   "Fuselage",
   "Landing Gear",
+  "Tail",
+  // ---- Wings + control surfaces (voice) ----
   "Left Wing",
   "Right Wing",
-  "Tail",
+  "Left Wing Tip",
+  "Right Wing Tip",
+  "Wing Strut",
+  "Left Aileron",
+  "Right Aileron",
+  "Left Flap",
+  "Right Flap",
+  // ---- Tail surfaces (voice) ----
+  "Vertical Stabilizer",
+  "Horizontal Stabilizer",
+  "Rudder",
+  "Elevator",
+  "Trim Tab",
+  // ---- Engine / nose (voice) ----
+  "Engine Cowl",
+  "Lower Cowling",
+  "Propeller",
+  // ---- Fuselage / cabin / doors (voice) ----
+  "Cabin",
+  "Door",
+  "Left Door",
+  "Right Door",
+  "Windshield",
+  "Static Port",
+  "Pitot Tube",
+  "Antennas",
+  // ---- Landing gear (voice) ----
+  "Nose Gear",
+  "Left Main Gear",
+  "Right Main Gear",
+  "Nose Tire",
+  "Left Tire",
+  "Right Tire",
+  // ---- Cockpit — voice subset ----
+  "Annunciator Panel",
+  "Attitude Indicator",
+  "Airspeed Indicator",
+  "Altimeter",
+  "Transponder",
+  "Autopilot",
+  "Parking Brake",
+  "Angle of Attack Indicator",
+  "Yoke",
+  // ---- Cockpit — picker-only instruments (NOT keyword-scanned) ----
+  "Vacuum Gage and Ammeter",
+  "Digital Clock / OAT Indicator",
+  "Turn Coordinator",
+  "Directional Gyro",
+  "Vertical Speed Indicator",
+  "EDM-900 Remote Annunciate Light",
+  "KI 209A Course Deviation and Glide Slope Indicator",
+  "KI 208 Course Indicator Head",
+  "Engine Data Monitor System",
+  "Audio Selector Panel",
+  "GPS and Nav/Com Radio 1",
+  "Nav/Com Radio 2",
+  "Stormscope",
+  "Portable iPad Mini Mount",
+  "Dual USB Power Outlet",
+  "Hour Meter",
+  "ELT Remote Test Button",
+  "Glove Box",
+  "Cabin Heat Control",
+  "Cabin Air Control",
+  "Flap Switch and Position Indicator",
+  "Mixture Control",
+  "Alternate Static Air Control",
+  "Hand Held Microphone",
+  "Fuel Shutoff Valve Control",
+  "Throttle Control",
+  "Fuel Selector",
+  "Pedestal Light",
+  "Elevator Trim Control",
+  "Glareshield and Pedestal Dimming Control",
+  "Radio and Panel Dimming Control",
+  "Avionics Master Switch",
+  "Circuit Breakers",
+  "Equipment Switches",
+  "Master Switch",
+  "Avionics Circuit Breakers",
+  "Ignition Switch",
 ] as const;
 
 export type LocationLabel = (typeof LOCATION_LABELS)[number];

@@ -27,13 +27,13 @@ const FIXTURES: Fixture[] = [
   // --- Client-reported cases (Zach, M3 release testing) ---------------
   {
     input: "right main tire looks worn",
-    expected: { type: "tire_worn", location: "Landing Gear" },
-    note: "Case 1 — worn-tire phrasing with a filler word; M3 release fix",
+    expected: { type: "tire_worn", location: "Right Tire" },
+    note: "Case 1 — M4 Item 1: 'right main tire' prefers the TIRE reading (Right Tire); bare 'worn' doesn't consume 'tire', so the longer location key forms",
   },
   {
     input: "small dent on passenger side door",
-    expected: { type: "dent", location: null },
-    note: "Case 2 — already correct pre-fix; locked as a regression anchor",
+    expected: { type: "dent", location: "Right Door" },
+    note: "Case 2 — M4 Item 1: 'passenger side door' is now handed → Right Door (was null pre-Item-1)",
   },
 
   // --- Canonical anchors (known-good, span the location groups) -------
@@ -51,12 +51,13 @@ const FIXTURES: Fixture[] = [
   },
   {
     input: "Tire worn on the right main",
-    expected: { type: "tire_worn", location: "Landing Gear" },
-    note: "contiguous 'tire worn' phrase still wins (longest-match-first)",
+    expected: { type: "tire_worn", location: "Right Main Gear" },
+    note: "M4 Item 1: 'right main' (no 'tire') → the gear leg, Right Main Gear",
   },
   {
     input: "Some oil on the cowling today",
-    expected: { type: "oil_leak", location: "Engine Area" },
+    expected: { type: "oil_leak", location: "Engine Cowl" },
+    note: "M4 Item 1: 'cowling' now resolves to the precise Engine Cowl",
   },
   {
     input: "there's a vibration in the tail",
@@ -64,7 +65,8 @@ const FIXTURES: Fixture[] = [
   },
   {
     input: "flat tire on the nose gear",
-    expected: { type: "flat_tire", location: "Landing Gear" },
+    expected: { type: "flat_tire", location: "Nose Gear" },
+    note: "M4 Item 1: 'nose gear' is now its own precise label",
   },
   {
     input: "unusual noise from the engine",
@@ -100,13 +102,13 @@ const FIXTURES: Fixture[] = [
   },
   {
     input: "rock chips on the cowling",
-    expected: { type: "scratch", location: "Engine Area" },
-    note: "multi-word alias — 'rock chips' maps to 'scratch'",
+    expected: { type: "scratch", location: "Engine Cowl" },
+    note: "multi-word alias — 'rock chips' maps to 'scratch'; 'cowling' → Engine Cowl (M4 Item 1)",
   },
   {
     input: "the right main tire is low pressure",
-    expected: { type: "tire_low", location: "Landing Gear" },
-    note: "multi-word alias — 'low pressure' maps to 'tire_low'",
+    expected: { type: "tire_low", location: "Right Tire" },
+    note: "'low pressure' → tire_low; 'right main tire' → Right Tire (M4 Item 1)",
   },
   {
     input: "chipped paint on the right wing",
@@ -134,8 +136,8 @@ const FIXTURES: Fixture[] = [
   // the false-positive-prone additions.
   {
     input: "transponder not working",
-    expected: { type: "not_working", location: null },
-    note: "NEW keyword 'not working' → not_working (critical); no location keyword near 'transponder'",
+    expected: { type: "not_working", location: "Transponder" },
+    note: "'not working' → not_working (Item 2); M4 Item 1 adds 'transponder' as a cockpit voice location → Transponder",
   },
   {
     input: "scratch on the right wing",
@@ -144,8 +146,8 @@ const FIXTURES: Fixture[] = [
   },
   {
     input: "leaking from the cowling",
-    expected: { type: "leak_general", location: "Engine Area" },
-    note: "NEW keyword 'leaking' → leak_general (critical) when no oil/fuel prefix",
+    expected: { type: "leak_general", location: "Engine Cowl" },
+    note: "'leaking' → leak_general (Item 2); 'cowling' → Engine Cowl (M4 Item 1)",
   },
   {
     input: "oil leaking near the belly",
@@ -198,6 +200,86 @@ const FIXTURES: Fixture[] = [
     input: "brakes feel fine",
     expected: null,
     note: "no brake keyword matches ('brake wear' / 'brake soft' / 'soft brakes' are the only keys; bare 'brakes' is not one)",
+  },
+
+  // --- M4 Item 1 — location precision (Raunek/Zach signed-off) --------
+  // Precise labels + L/R handedness + coarse fallbacks + picker-only.
+  {
+    input: "oil residue on the lower cowling",
+    expected: { type: "oil_leak", location: "Lower Cowling" },
+    note: "'lower cowling' is its own precise sub-region (distinct from Engine Cowl)",
+  },
+  {
+    input: "crack in the windshield",
+    expected: { type: "crack", location: "Windshield" },
+    note: "NEW exterior location 'windshield'",
+  },
+  {
+    input: "dent on the pilot side door",
+    expected: { type: "dent", location: "Left Door" },
+    note: "handed door — pilot side = Left Door",
+  },
+  {
+    input: "crack on the left aileron",
+    expected: { type: "crack", location: "Left Aileron" },
+    note: "L/R proof (left) — handed control surface",
+  },
+  {
+    input: "scratch on the right flap",
+    expected: { type: "scratch", location: "Right Flap" },
+    note: "L/R proof (right) — handed control surface",
+  },
+  {
+    input: "there's a vibration in the vertical stabilizer",
+    expected: { type: "vibration", location: "Vertical Stabilizer" },
+    note: "tail surface precision — was coarse 'Tail', now its own label",
+  },
+  {
+    input: "low pressure in the nose tire",
+    expected: { type: "tire_low", location: "Nose Tire" },
+    note: "precise landing-gear tire label",
+  },
+  {
+    input: "altimeter not working",
+    expected: { type: "not_working", location: "Altimeter" },
+    note: "cockpit voice-subset instrument extracts as a location",
+  },
+  {
+    input: "crack in the landing gear",
+    expected: { type: "crack", location: "Landing Gear" },
+    note: "coarse fallback still works (bare 'landing gear')",
+  },
+  {
+    input: "vibration in the gear",
+    expected: { type: "vibration", location: "Landing Gear" },
+    note: "coarse fallback — bare 'gear' → Landing Gear (word-bounded, won't match 'gearbox')",
+  },
+  {
+    input: "dent on the left wing and corrosion on the right wing",
+    expected: { type: "dent", location: "Left Wing" },
+    note: "multi-location L/R — each 'issue on side' clause pairs correctly (first = dent/Left Wing; second = corrosion/Right Wing)",
+  },
+  {
+    input: "crack near the mixture control",
+    expected: { type: "crack", location: null },
+    note: "picker-only instrument 'mixture control' is NOT keyword-scanned → location stays null (no false pair)",
+  },
+
+  // --- M4 Item 1 — KNOWN LIMITATION (flagged, not silently shipped) ---
+  // Multi-ISSUE L/R sentence where an issue keyword consumes the side
+  // qualifier. "tire worn" (contiguous) consumes the "tire" token, so
+  // "right main tire" → Right Tire can't form; the right side downgrades
+  // to "right main" → Right Main Gear (leftward, dist 1), but the
+  // intentional RIGHTWARD pairing bias instead grabs the trailing
+  // "left main" → Left Main Gear (dist 2). Result: the worn tire is
+  // reported on the WRONG side. Fixing requires reworking the pairing
+  // bias (risks regressing the many "issue on location" cases) — deferred
+  // beyond this session. Locked here so the wrong side is VISIBLE, and a
+  // future fix becomes a deliberate change to this assertion.
+  {
+    input: "right main tire worn, left main looks low",
+    expected: { type: "tire_worn", location: "Left Main Gear" },
+    note: "⚠️ KNOWN LIMITATION (M4 Item 1): mis-pairs to the LEFT; should be the right tire. Flagged for a follow-up pairing-bias fix. ('left main looks low' yields no issue — 'low' alone is not a keyword.)",
   },
 ];
 
