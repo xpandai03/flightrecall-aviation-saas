@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { z } from "zod";
-import { createClient } from "@/utils/supabase/server";
+import { createClient, createServiceRoleClient } from "@/utils/supabase/server";
 import { visibleChecklist } from "@/lib/checklist";
+import { isMemberOfAircraft } from "@/lib/aircraft-membership";
+import { gateMediaView } from "@/lib/media-access";
 import type { ChecklistImage } from "@/lib/types/database";
 
 export const dynamic = "force-dynamic";
@@ -60,7 +62,12 @@ export async function GET(
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (!(await ownAircraft(supabase, parsed.data, user.id))) {
+  // Phase 4: any MEMBER may VIEW the shared checklist (not just the owner).
+  // Checklist images all belong to this route's aircraft (parsed.data), so
+  // membership of that aircraft is the per-media-aircraft gate. (Management
+  // POST/PATCH/DELETE stay owner-only via ownAircraft below.)
+  const gate = gateMediaView(await isMemberOfAircraft(supabase, parsed.data));
+  if (!gate.allow) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
@@ -74,10 +81,14 @@ export async function GET(
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  // Member confirmed → mint VIEW signed URLs with the SERVICE-ROLE client
+  // (bypasses user-path-scoped storage RLS so a co-pilot can view checklist
+  // images another pilot uploaded). Uploads stay user-scoped (unchanged).
+  const admin = createServiceRoleClient();
   const visible = visibleChecklist(rows ?? []);
   const images: ChecklistImage[] = await Promise.all(
     visible.map(async (row) => {
-      const { data: signed } = await supabase.storage
+      const { data: signed } = await admin.storage
         .from(BUCKET)
         .createSignedUrl(row.storage_key, SIGNED_URL_TTL_SECONDS);
       return {
