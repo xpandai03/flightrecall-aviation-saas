@@ -10,7 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { AddAircraftForm } from "@/components/aircraft/add-aircraft-form";
+import { AddOrJoinAircraft } from "@/components/aircraft/add-or-join-aircraft";
 import type { Aircraft } from "@/lib/types/database";
 
 export function AddAircraftDialog({
@@ -22,7 +22,7 @@ export function AddAircraftDialog({
 }) {
   const router = useRouter();
 
-  const handleCreated = (aircraft: Aircraft) => {
+  const handleDone = (aircraft: Aircraft) => {
     onOpenChange(false);
     router.push(`/aircraft/${aircraft.id}/dashboard`);
     router.refresh();
@@ -34,13 +34,12 @@ export function AddAircraftDialog({
         <DialogHeader>
           <DialogTitle>Add aircraft</DialogTitle>
           <DialogDescription>
-            Tail number is required. Type is optional and free-form.
+            Create a new aircraft, or join a shared one with an invite code.
           </DialogDescription>
         </DialogHeader>
-        <AddAircraftForm
-          onCreated={handleCreated}
+        <AddOrJoinAircraft
+          onDone={handleDone}
           onCancel={() => onOpenChange(false)}
-          autoFocus
         />
       </DialogContent>
     </Dialog>

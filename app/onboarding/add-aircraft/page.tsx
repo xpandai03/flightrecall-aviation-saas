@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { Plane } from "lucide-react";
-import { AddAircraftForm } from "@/components/aircraft/add-aircraft-form";
+import { AddOrJoinAircraft } from "@/components/aircraft/add-or-join-aircraft";
 import { SignOutButton } from "@/components/auth/sign-out-button";
 import type { Aircraft } from "@/lib/types/database";
 
@@ -38,11 +38,7 @@ export default function OnboardingAddAircraftPage() {
           </p>
         </div>
 
-        <AddAircraftForm
-          onCreated={handleCreated}
-          autoFocus
-          ctaLabel="Continue"
-        />
+        <AddOrJoinAircraft onDone={handleCreated} createCtaLabel="Continue" />
       </div>
     </div>
   );

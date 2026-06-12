@@ -8,6 +8,7 @@ import {
   SessionRowItem,
   StatusCard,
 } from "@/components/dashboard";
+import { ShareAircraftButton } from "@/components/aircraft/share-aircraft-button";
 import { summarizeSession } from "@/lib/api/adapter";
 import { loadActiveIssuesBySeverity } from "@/lib/active-issues-load";
 import { createClient } from "@/utils/supabase/server";
@@ -53,7 +54,7 @@ export default async function DashboardPage({
       supabase.auth.getUser(),
       supabase
         .from("aircraft")
-        .select("id, tail_number, aircraft_type")
+        .select("id, tail_number, aircraft_type, user_id")
         .eq("id", aircraftId)
         .maybeSingle(),
       loadActiveIssuesBySeverity(supabase, aircraftId),
@@ -79,6 +80,10 @@ export default async function DashboardPage({
 
   if (!aircraftRes.data) notFound();
   const aircraft = aircraftRes.data;
+  // Owner = the aircraft's creator (aircraft.user_id). Owner-only controls
+  // (the Share/invite affordance) render off this. Membership-based access
+  // is enforced by RLS independently.
+  const isOwner = aircraft.user_id === userRes.data.user?.id;
 
   const criticalIssues = buckets.critical;
   const criticalIssueCount = criticalIssues.length;
@@ -117,11 +122,23 @@ export default async function DashboardPage({
 
   return (
     <div className="flex flex-col gap-6 sm:gap-8">
-      {firstName && (
-        <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-text-secondary">
-          Hi,{" "}
-          <span className="text-text-primary">{firstName}</span>
-        </h1>
+      {(firstName || isOwner) && (
+        <div className="flex items-center justify-between gap-3">
+          {firstName ? (
+            <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-text-secondary">
+              Hi,{" "}
+              <span className="text-text-primary">{firstName}</span>
+            </h1>
+          ) : (
+            <span />
+          )}
+          {isOwner && (
+            <ShareAircraftButton
+              aircraftId={aircraftId}
+              tailNumber={aircraft.tail_number}
+            />
+          )}
+        </div>
       )}
       <DashboardChecklistCard aircraftId={aircraftId} />
       <StatusCard
