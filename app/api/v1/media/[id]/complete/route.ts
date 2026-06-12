@@ -204,6 +204,10 @@ export async function POST(
           // When set, the job binds this photo to the first extracted
           // issue (voice wins) or applies the photo's quick_tag fallback.
           photoAttachmentMediaId: photoIdToLink ?? undefined,
+          // Phase 3 attribution: the job runs as service-role (no
+          // auth.uid()), so the acting pilot is captured HERE (cookie user)
+          // and threaded down to the issue/observation inserts.
+          createdByUserId: user.id,
         });
       });
     }

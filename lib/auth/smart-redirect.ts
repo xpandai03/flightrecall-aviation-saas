@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
+import { ensureProfile } from "@/lib/profile";
 
 /**
  * Shared redirect logic for the root page AND the legacy URLs
@@ -25,6 +26,11 @@ export async function smartRedirect(page: "dashboard" | "sessions" | "memory") {
   if (!user) {
     redirect("/login");
   }
+
+  // Phase 3: lazily populate this pilot's profile (first_name) on their
+  // signed-in landing — the no-migration backfill for "logged by {pilot}".
+  // Best-effort; insert-if-missing, never overwrites a set name.
+  await ensureProfile(supabase, user);
 
   const { data: aircraftRows } = await supabase
     .from("aircraft")

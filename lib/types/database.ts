@@ -35,6 +35,8 @@ export type PreflightSession = {
   transcript_text: string | null;
   created_at: string;
   finalized_at: string | null;
+  /** Phase 3 attribution — the pilot who logged this session (nullable). */
+  created_by?: string | null;
 };
 
 export type MediaAsset = {
@@ -113,6 +115,8 @@ export type Issue = {
   ai_summary: string | null;
   /** Set when a summary attempt finishes (success or failure) or backfilled. */
   ai_summary_updated_at: string | null;
+  /** Phase 3 attribution — the pilot who FIRST logged this issue (nullable). */
+  created_by?: string | null;
 };
 
 export type IssueWithType = Issue & {
@@ -145,6 +149,8 @@ export type IssueObservation = {
   // skipped actions (no transcript context).
   raw_transcript: string | null;
   summary: string | null;
+  /** Phase 3 attribution — the pilot who made this observation (nullable). */
+  created_by?: string | null;
   created_at: string;
 };
 

@@ -65,6 +65,7 @@ export async function POST(request: Request) {
   const insertPayload = {
     ...parsed.data,
     status_color: computed_status_color,
+    created_by: user.id, // Phase 3 attribution: the pilot who logged it.
   };
 
   const { data, error } = await supabase

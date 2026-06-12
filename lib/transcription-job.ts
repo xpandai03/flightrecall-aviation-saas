@@ -86,6 +86,14 @@ type RunArgs = {
    * issue. Undefined for a standalone voice note.
    */
   photoAttachmentMediaId?: string;
+  /**
+   * Phase 3 attribution — the acting pilot's user id, captured in the
+   * originating request (the job runs as service-role with NO auth.uid(),
+   * so this MUST be threaded in, never read here). Set on new issue +
+   * observation rows. Undefined → created_by left null (acceptable; the UI
+   * falls back).
+   */
+  createdByUserId?: string;
 };
 
 /**
@@ -104,6 +112,7 @@ export async function runTranscription(args: RunArgs): Promise<void> {
     storage_key,
     file_name,
     photoAttachmentMediaId,
+    createdByUserId,
   } = args;
 
   console.log("[transcription] entry", {
@@ -169,6 +178,7 @@ export async function runTranscription(args: RunArgs): Promise<void> {
         firstExtractedIssueId = await persistExtractedIssues(supabase, {
           preflight_session_id,
           extracted,
+          createdByUserId,
         });
       }
     } catch (err) {
@@ -243,6 +253,7 @@ export async function runTranscription(args: RunArgs): Promise<void> {
             media_asset_id: photoAttachmentMediaId,
             preflight_session_id,
             quick_tag: binding.quickTag,
+            created_by: createdByUserId,
           });
           if (!fallback.ok) {
             console.error("[transcription] quick_tag fallback failed", {
@@ -291,9 +302,11 @@ async function persistExtractedIssues(
   args: {
     preflight_session_id: string;
     extracted: ExtractedIssue[];
+    /** Phase 3 attribution — threaded from the request (not read here). */
+    createdByUserId?: string;
   },
 ): Promise<string | null> {
-  const { preflight_session_id, extracted } = args;
+  const { preflight_session_id, extracted, createdByUserId } = args;
 
   const { data: session, error: sesErr } = await supabase
     .from("preflight_sessions")
@@ -315,6 +328,7 @@ async function persistExtractedIssues(
         aircraft_id: session.aircraft_id,
         preflight_session_id,
         extracted: ex,
+        createdByUserId,
       });
       if (firstIssueId === null && id) firstIssueId = id;
     } catch (err) {
@@ -333,9 +347,11 @@ async function persistOne(
     aircraft_id: string;
     preflight_session_id: string;
     extracted: ExtractedIssue;
+    /** Phase 3 attribution — threaded from the request (not read here). */
+    createdByUserId?: string;
   },
 ): Promise<string | null> {
-  const { aircraft_id, preflight_session_id, extracted } = args;
+  const { aircraft_id, preflight_session_id, extracted, createdByUserId } = args;
 
   // Resolve issue_type by slug. Defensive: spec slugs should all exist
   // post-migration, but skip silently if not.
@@ -406,6 +422,9 @@ async function persistOne(
         first_seen_at: nowIso,
         last_seen_at: nowIso,
         current_status: "active",
+        // Phase 3: issues.created_by = the FIRST logger. The update path
+        // above intentionally leaves it untouched on recurrence.
+        created_by: createdByUserId ?? null,
       })
       .select("id")
       .single();
@@ -438,6 +457,7 @@ async function persistOne(
     action: "logged",
     raw_transcript: extracted.raw_transcript.slice(0, RAW_TRANSCRIPT_MAX_CHARS),
     summary: extracted.summary,
+    created_by: createdByUserId ?? null, // Phase 3: who logged this observation.
   });
   if (obsErr) {
     throw new Error(`observation insert: ${obsErr.message}`);

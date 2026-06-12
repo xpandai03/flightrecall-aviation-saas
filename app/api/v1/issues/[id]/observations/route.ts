@@ -139,6 +139,7 @@ export async function POST(
         issue_id: issue.id,
         preflight_session_id,
         action,
+        created_by: user.id, // Phase 3: per-touch attribution (who marked still/fixed).
       })
       .select()
       .single();

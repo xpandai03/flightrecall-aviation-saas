@@ -26,6 +26,8 @@ import { PhotoLightbox } from "@/components/photo-lightbox"
 import { StatusChip } from "@/components/status-chip"
 import { adaptSession } from "@/lib/api/adapter"
 import { getSession, listAircraft, useSessions } from "@/lib/api/sessions"
+import { fetchProfiles } from "@/lib/api/profiles"
+import { displayPilotName, loggedByLabel } from "@/lib/pilot-name"
 import {
   isCompanionPhotoVoiceAudio,
   isPhotoAttachedTranscript,
@@ -227,6 +229,27 @@ function SessionDetail({ session }: { session: Session }) {
     }
   }, [session.id])
 
+  // Phase 3 attribution: resolve the creators of this session + its
+  // observations to first names (RLS-scoped to co-members) for "logged by".
+  const [pilotNames, setPilotNames] = React.useState<
+    Record<string, string | null>
+  >({})
+  React.useEffect(() => {
+    if (!detail) return
+    const ids = [
+      detail.created_by ?? undefined,
+      ...(detail.issue_observations ?? []).map((o) => o.created_by ?? undefined),
+    ].filter((x): x is string => Boolean(x))
+    if (ids.length === 0) return
+    let cancelled = false
+    void fetchProfiles(ids).then((m) => {
+      if (!cancelled) setPilotNames(m)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [detail])
+
   const photoAssets = (detail?.media_assets ?? []).filter(
     (a) => a.media_type === "photo",
   );
@@ -264,6 +287,11 @@ function SessionDetail({ session }: { session: Session }) {
         <SheetDescription>
           Captured via voice. Transcribed and filed to session memory.
         </SheetDescription>
+        {detail?.created_by && (
+          <div className="text-xs text-muted-foreground">
+            {loggedByLabel(pilotNames[detail.created_by])}
+          </div>
+        )}
       </SheetHeader>
 
       <div className="px-4 pb-4 space-y-5">
@@ -366,6 +394,11 @@ function SessionDetail({ session }: { session: Session }) {
                       {obs.issue.issue_type.name}
                     </span>
                     <span className="text-muted-foreground">— {actionCopy(obs.action)}</span>
+                    {obs.created_by && (
+                      <span className="text-xs text-muted-foreground">
+                        · {displayPilotName(pilotNames[obs.created_by])}
+                      </span>
+                    )}
                     {resolved && (
                       <span className="text-xs text-muted-foreground">· resolved</span>
                     )}

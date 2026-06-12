@@ -139,6 +139,7 @@ export async function POST(
       file_name: parsed.data.file_name,
       mime_type: parsed.data.mime_type,
       upload_status: "pending",
+      created_by: user.id, // Phase 3 attribution.
     })
     .select("id")
     .single();

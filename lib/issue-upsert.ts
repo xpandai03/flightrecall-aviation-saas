@@ -23,8 +23,12 @@ export async function upsertIssueForMedia(args: {
   media_asset_id: string;
   preflight_session_id: string;
   quick_tag: string;
+  /** Phase 3 attribution — threaded from the request (this runs in the
+   *  service-role job, so it can't read auth.uid()). */
+  created_by?: string;
 }): Promise<{ ok: true; issue_id: string } | { ok: false; error: string }> {
-  const { supabase, media_asset_id, preflight_session_id, quick_tag } = args;
+  const { supabase, media_asset_id, preflight_session_id, quick_tag, created_by } =
+    args;
 
   const { data: type, error: typeErr } = await supabase
     .from("issue_types")
@@ -84,6 +88,7 @@ export async function upsertIssueForMedia(args: {
         first_seen_at: nowIso,
         last_seen_at: nowIso,
         current_status: "active",
+        created_by: created_by ?? null, // Phase 3: first logger.
       })
       .select("id")
       .single();
@@ -105,6 +110,7 @@ export async function upsertIssueForMedia(args: {
       issue_id,
       preflight_session_id,
       action: "logged",
+      created_by: created_by ?? null, // Phase 3 attribution.
     });
   if (obsErr) return { ok: false, error: obsErr.message };
 
