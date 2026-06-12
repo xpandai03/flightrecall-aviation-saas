@@ -16,10 +16,13 @@ import { extractIssues } from "@/lib/issue-extraction";
  * change. Vocabulary expansion (more keywords / locations) is M4.
  */
 
+type IssueExpect = { type: string; location: string | null };
 type Fixture = {
   input: string;
-  /** Expected first issue, or null when no issue should extract. */
-  expected: { type: string; location: string | null } | null;
+  /** Expected FIRST issue, or null when no issue should extract. */
+  expected?: IssueExpect | null;
+  /** Expected FULL ordered issue list (item B multi-observation cases). */
+  expectedAll?: IssueExpect[];
   note?: string;
 };
 
@@ -74,7 +77,8 @@ const FIXTURES: Fixture[] = [
   },
   {
     input: "something feels off",
-    expected: { type: "something_off", location: null },
+    expected: { type: "something_off", location: "Location Unknown" },
+    note: "item B — no in-clause location → Location Unknown (was null)",
   },
   {
     input: "lowered the spoilers on landing",
@@ -127,8 +131,8 @@ const FIXTURES: Fixture[] = [
   },
   {
     input: "something looks broken",
-    expected: { type: "other", location: null },
-    note: "edge case — generic 'broken' with no location resolves to the generic 'other' slug, never a wrong specific category",
+    expected: { type: "other", location: "Location Unknown" },
+    note: "generic 'broken' → 'other'; no location → Location Unknown (item B; was null)",
   },
 
   // --- M4 Item 2 — new keywords (Raunek/Zach signed-off) --------------
@@ -156,13 +160,13 @@ const FIXTURES: Fixture[] = [
   },
   {
     input: "vibrating prop",
-    expected: { type: "vibration", location: null },
-    note: "NEW keyword 'vibrating' → vibration (critical); 'vibration' is not a substring of 'vibrating'",
+    expected: { type: "vibration", location: "Location Unknown" },
+    note: "'vibrating' → vibration; no location keyword ('prop' isn't one) → Location Unknown (item B; was null)",
   },
   {
     input: "soft brakes on the right",
-    expected: { type: "brake_soft", location: null },
-    note: "NEW keyword 'soft brakes' → brake_soft (critical); contiguous key was 'brake soft' (wrong word order)",
+    expected: { type: "brake_soft", location: "Location Unknown" },
+    note: "'soft brakes' → brake_soft; bare 'right' isn't a location → Location Unknown (item B; was null)",
   },
   {
     input: "flickering avionics",
@@ -261,35 +265,92 @@ const FIXTURES: Fixture[] = [
   },
   {
     input: "crack near the mixture control",
-    expected: { type: "crack", location: null },
-    note: "picker-only instrument 'mixture control' is NOT keyword-scanned → location stays null (no false pair)",
+    expected: { type: "crack", location: "Location Unknown" },
+    note: "picker-only 'mixture control' is NOT keyword-scanned → no location → Location Unknown (item B; was null — still no false pair)",
   },
 
-  // --- M4 Item 1 — KNOWN LIMITATION (flagged, not silently shipped) ---
-  // Multi-ISSUE L/R sentence where an issue keyword consumes the side
-  // qualifier. "tire worn" (contiguous) consumes the "tire" token, so
-  // "right main tire" → Right Tire can't form; the right side downgrades
-  // to "right main" → Right Main Gear (leftward, dist 1), but the
-  // intentional RIGHTWARD pairing bias instead grabs the trailing
-  // "left main" → Left Main Gear (dist 2). Result: the worn tire is
-  // reported on the WRONG side. Fixing requires reworking the pairing
-  // bias (risks regressing the many "issue on location" cases) — deferred
-  // beyond this session. Locked here so the wrong side is VISIBLE, and a
-  // future fix becomes a deliberate change to this assertion.
+  // --- item B — the M4 Item-1 known limitation is now FIXED by chunking ---
+  // Previously this mis-paired to the LEFT (Left Main Gear) because the
+  // global rightward bias grabbed the trailing "left main". With clause
+  // segmentation the comma splits it: clause 1 "right main tire worn" pairs
+  // within itself → Right Main Gear (correct SIDE); clause 2 "left main
+  // looks low" yields no issue ("low" alone isn't a keyword). The
+  // gear-vs-tire residual (the contiguous "tire worn" consumes "tire", so
+  // "right main tire" → Right Tire can't form — OD4) is accepted.
   {
     input: "right main tire worn, left main looks low",
-    expected: { type: "tire_worn", location: "Left Main Gear" },
-    note: "⚠️ KNOWN LIMITATION (M4 Item 1): mis-pairs to the LEFT; should be the right tire. Flagged for a follow-up pairing-bias fix. ('left main looks low' yields no issue — 'low' alone is not a keyword.)",
+    expected: { type: "tire_worn", location: "Right Main Gear" },
+    note: "item B FIX: chunking pairs within the comma-clause → correct side (Right Main Gear), no longer the wrong Left Main Gear",
+  },
+
+  // --- item B — chunk-based pairing (multi-observation) ---------------
+  // The headline client failure: three observations in one note. Globally
+  // these cross-assigned (tire→Right Door, dent→Left Wing, fuel→Right Tire);
+  // chunking pairs each within its OWN clause.
+  {
+    input:
+      "Right main tire looks worn, small dent on passenger side door, fuel smell near left wing root",
+    expectedAll: [
+      { type: "tire_worn", location: "Right Tire" },
+      { type: "dent", location: "Right Door" },
+      { type: "fuel_smell", location: "Left Wing" },
+    ],
+    note: "HEADLINE FIX — 3 observations, each paired within its own clause; no cross-assignment. ('left wing root' → Left Wing Root is item D.)",
+  },
+  {
+    input: "landing light flickered during startup",
+    expected: { type: "flicker", location: "Location Unknown" },
+    note: "'flickered' → flicker; 'landing light' is NOT a location keyword (item D) → Location Unknown, NOT a wrong far 'Pitot Tube' from another clause",
+  },
+  {
+    input: "crack on the left wing or the right aileron",
+    expected: { type: "crack", location: "Location Unknown" },
+    note: "OD3 — a single-issue clause with ≥2 candidate locations (Left Wing + Right Aileron) is ambiguous → Location Unknown (don't guess; 'or' is not a delimiter)",
+  },
+  {
+    input: "tire worn, fuel smell near left wing",
+    expectedAll: [
+      { type: "tire_worn", location: "Location Unknown" },
+      { type: "fuel_smell", location: "Left Wing" },
+    ],
+    note: "no cross-clause grab — the 'tire worn' clause has no location → Location Unknown; the wing belongs only to the fuel-smell clause",
+  },
+
+  // --- item B — KNOWN RESIDUAL (OD2): no-delimiter run-on -------------
+  // With NO punctuation the whole note is a single clause, so the old
+  // global within-clause pairing can still mis-assign. Whisper almost
+  // always punctuates clause boundaries, so this is an edge; locked here so
+  // the residual is VISIBLE. Adding the comma fixes it (see HEADLINE above).
+  {
+    input: "right main tire looks worn small dent on passenger side door",
+    expectedAll: [
+      { type: "tire_worn", location: "Right Door" },
+      { type: "dent", location: "Right Tire" },
+    ],
+    note: "⚠️ OD2 RESIDUAL: no delimiters → single clause → may mis-pair. Punctuated input pairs correctly. Issue-boundary sub-splitting deferred.",
   },
 ];
 
 describe("extractIssues — fixture regression cases", () => {
   it.each(FIXTURES)(
     "$input",
-    ({ input, expected }) => {
+    ({ input, expected, expectedAll }) => {
       const result = extractIssues(input);
 
-      if (expected === null) {
+      // Multi-observation cases assert the FULL ordered list.
+      if (expectedAll) {
+        expect(result).toHaveLength(expectedAll.length);
+        expectedAll.forEach((e, i) => {
+          expect(result[i]).toMatchObject({
+            type_slug: e.type,
+            location: e.location,
+          });
+        });
+        return;
+      }
+
+      // `expected: null` (or omitted) → nothing should extract.
+      if (!expected) {
         expect(result).toEqual([]);
         return;
       }

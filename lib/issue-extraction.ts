@@ -31,6 +31,14 @@ export type ExtractedIssue = {
  *  nearest location keyword within ±this distance. Tunable. */
 const PAIR_WINDOW_CHARS = 50;
 
+/** Low-confidence location label (item B). When a clause's issue has no
+ *  in-clause location (or an ambiguous ≥2-location clause), we emit this
+ *  instead of guessing or borrowing another clause's location — a WRONG
+ *  location is worse than a MISSING one. Emitted issues never carry a null
+ *  location anymore: a real label or this string. (issues.location is free
+ *  text, so this needs no schema change.) */
+const LOCATION_UNKNOWN = "Location Unknown";
+
 /** Keywords at or below this length must be word-bounded on both sides
  *  during scanning (so bare "oil" doesn't match inside "spoiler" or
  *  "boiling") and are dropped from the issue output if they fail to
@@ -407,120 +415,159 @@ function scanKeywords<V>(
 
 function buildSummary(slug: string, location: string | null): string {
   const name = ISSUE_NAME_BY_SLUG[slug] ?? slug;
+  if (location === LOCATION_UNKNOWN) return `${name} observed (location unknown)`;
   if (location) return `${name} observed on ${location}`;
   return `${name} observed (location not specified)`;
 }
 
 /**
- * Extract structured issues from a transcript per the V1 spec.
+ * Split a normalized transcript into clause segments (item B chunking).
+ *
+ * Deterministic — no AI. Splits on HARD delimiters ( , ; . ! ? ) and the
+ * word-bounded conjunctions " and " / " then " (the surrounding spaces make
+ * them word-bounded, so "errand" / "android" never split). Trims each
+ * segment and drops empties.
+ *
+ * Each clause is then extracted in ISOLATION (issue + location scoped to the
+ * clause), so an issue can never pair to a location in a different
+ * observation — the fix for multi-observation cross-assignment. A run-on
+ * with no delimiters yields a single clause (today's behavior, no worse).
+ */
+export function splitIntoClauses(text: string): string[] {
+  return text
+    .split(/[,;.!?]+|\s+(?:and|then)\s+/)
+    .map((clause) => clause.trim())
+    .filter((clause) => clause.length > 0);
+}
+
+/**
+ * Extract structured issues from a transcript (item B — chunk-based pairing).
  *
  * Algorithm:
  *   1. Lowercase + collapse internal whitespace.
- *   2. Issue-pass: greedy-scan ISSUE_KEYWORDS (longest-first); accepted
- *      matches mark their char-range as consumed.
- *   3. Location-pass: greedy-scan LOCATION_KEYWORDS over the same
- *      consumed map, so a location word embedded in an issue match
- *      (rare now that compound slugs are gone) can't double-count.
- *   4. Pairing — for each issue (in transcript order):
- *        a. Look right: pick the nearest unclaimed location starting
- *           after issue.end, within PAIR_WINDOW_CHARS.
- *        b. Else look left: pick the nearest unclaimed location
- *           ending before issue.start, within PAIR_WINDOW_CHARS.
- *        c. Once a location is paired, it's claimed — no other issue
- *           can take it. Rightward bias matches natural English
- *           ("X on Y") and avoids the "corrosion grabs the belly that
- *           the earlier oil leak was about to take" failure mode.
- *        d. Drop unpaired short-keyword matches (length ≤
- *           SHORT_KEYWORD_MAX_LEN). Bare "oil" with no nearby location
- *           is too ambiguous ("oil pressure", "oil temp") to emit;
- *           multi-word phrases like "oil leak" still emit unpaired.
- *   5. Build summary; deduplicate (slug, location) — first wins.
- *   6. Return array. Locations alone are dropped — per spec they
- *      "store as note only" via voice_transcriptions.transcript_text.
+ *   2. Split into CLAUSE segments (splitIntoClauses). Each clause is one
+ *      observation; pairing is scoped to a clause so an issue can NEVER
+ *      reach another observation's location (the multi-observation fix).
+ *   3. Per clause:
+ *        a. Issue-pass: greedy-scan ISSUE_KEYWORDS (longest-first); accepted
+ *           matches mark their char-range as consumed.
+ *        b. Location-pass: greedy-scan LOCATION_KEYWORDS over the SAME
+ *           consumed map (so a location word inside an issue match can't
+ *           double-count — kept by design, OD4).
+ *        c. Pairing — for each issue, nearest unclaimed location: rightward
+ *           first (start ≥ issue.end), else leftward (end ≤ issue.start),
+ *           within PAIR_WINDOW_CHARS, then claimed.
+ *        d. Low-confidence → "Location Unknown" rather than a guess: a
+ *           single-issue clause with ≥2 candidate locations is ambiguous, and
+ *           an emitted issue with no in-clause location gets the label.
+ *           (Short / LOCATION_REQUIRED keywords with no location are still
+ *           DROPPED — unchanged — before any label is assigned.)
+ *   4. Dedupe (slug, location) across all clauses — first wins.
+ *   5. Emitted issues never carry a null location (a real label or
+ *      "Location Unknown"). raw_transcript stays the WHOLE note (OD5).
  *
- * Pure function, no I/O, deterministic.
+ * Pure function, no I/O, deterministic. Single-observation transcripts (no
+ * delimiters) are one clause → behavior is byte-identical to before, except
+ * a previously-null location now reads "Location Unknown".
  */
 export function extractIssues(transcript: string): ExtractedIssue[] {
   if (!transcript) return [];
   const text = transcript.toLowerCase().replace(/\s+/g, " ").trim();
   if (!text) return [];
 
-  const consumed = new Array<boolean>(text.length).fill(false);
-
-  const issueMatches = scanKeywords(
-    text,
-    ISSUE_KEYWORDS,
-    ISSUE_KEYS_DESC,
-    consumed,
-  );
-  if (issueMatches.length === 0) return [];
-
-  const locationMatches = scanKeywords(
-    text,
-    LOCATION_KEYWORDS,
-    LOCATION_KEYS_DESC,
-    consumed,
-  );
-
-  const claimedLocs = new Set<number>();
   const seen = new Set<string>();
   const out: ExtractedIssue[] = [];
 
-  for (const issue of issueMatches) {
-    let pickedIdx = -1;
-    let bestDist = Number.POSITIVE_INFINITY;
+  for (const clause of splitIntoClauses(text)) {
+    const consumed = new Array<boolean>(clause.length).fill(false);
 
-    // Look right first: nearest unclaimed location starting after this
-    // issue's end, within the window.
-    for (let i = 0; i < locationMatches.length; i++) {
-      if (claimedLocs.has(i)) continue;
-      const loc = locationMatches[i];
-      if (loc.start < issue.end) continue;
-      const dist = loc.start - issue.end;
-      if (dist <= PAIR_WINDOW_CHARS && dist < bestDist) {
-        pickedIdx = i;
-        bestDist = dist;
-      }
-    }
+    const issueMatches = scanKeywords(
+      clause,
+      ISSUE_KEYWORDS,
+      ISSUE_KEYS_DESC,
+      consumed,
+    );
+    if (issueMatches.length === 0) continue;
 
-    // No rightward match? Fall back to leftward.
-    if (pickedIdx === -1) {
-      for (let i = 0; i < locationMatches.length; i++) {
-        if (claimedLocs.has(i)) continue;
-        const loc = locationMatches[i];
-        if (loc.end > issue.start) continue;
-        const dist = issue.start - loc.end;
-        if (dist <= PAIR_WINDOW_CHARS && dist < bestDist) {
-          pickedIdx = i;
-          bestDist = dist;
+    const locationMatches = scanKeywords(
+      clause,
+      LOCATION_KEYWORDS,
+      LOCATION_KEYS_DESC,
+      consumed,
+    );
+
+    // A clause with a SINGLE issue and ≥2 candidate locations is ambiguous —
+    // don't guess which (OD3). Skip pairing so the issue resolves to
+    // "Location Unknown" (or drops, if a short/location-required keyword).
+    const ambiguousSingle =
+      issueMatches.length === 1 && locationMatches.length >= 2;
+
+    const claimedLocs = new Set<number>();
+
+    for (const issue of issueMatches) {
+      let location: string | null = null;
+
+      if (!ambiguousSingle) {
+        let pickedIdx = -1;
+        let bestDist = Number.POSITIVE_INFINITY;
+
+        // Look right first: nearest unclaimed location starting after this
+        // issue's end, within the window (scoped to the clause).
+        for (let i = 0; i < locationMatches.length; i++) {
+          if (claimedLocs.has(i)) continue;
+          const loc = locationMatches[i];
+          if (loc.start < issue.end) continue;
+          const dist = loc.start - issue.end;
+          if (dist <= PAIR_WINDOW_CHARS && dist < bestDist) {
+            pickedIdx = i;
+            bestDist = dist;
+          }
+        }
+
+        // No rightward match? Fall back to leftward.
+        if (pickedIdx === -1) {
+          for (let i = 0; i < locationMatches.length; i++) {
+            if (claimedLocs.has(i)) continue;
+            const loc = locationMatches[i];
+            if (loc.end > issue.start) continue;
+            const dist = issue.start - loc.end;
+            if (dist <= PAIR_WINDOW_CHARS && dist < bestDist) {
+              pickedIdx = i;
+              bestDist = dist;
+            }
+          }
+        }
+
+        if (pickedIdx !== -1) {
+          claimedLocs.add(pickedIdx);
+          location = locationMatches[pickedIdx].value;
         }
       }
+
+      // Drop rule (unchanged): an unpaired short / LOCATION_REQUIRED keyword
+      // is too ambiguous to emit — drop it BEFORE the Location-Unknown label.
+      if (
+        location === null &&
+        (issue.keyword.length <= SHORT_KEYWORD_MAX_LEN ||
+          LOCATION_REQUIRED_KEYWORDS.has(issue.keyword))
+      ) {
+        continue;
+      }
+
+      // OD1: emitted issues never carry a null location.
+      const emittedLocation = location ?? LOCATION_UNKNOWN;
+
+      const dedupeKey = `${issue.value}|${emittedLocation}`;
+      if (seen.has(dedupeKey)) continue;
+      seen.add(dedupeKey);
+
+      out.push({
+        type_slug: issue.value,
+        location: emittedLocation,
+        summary: buildSummary(issue.value, emittedLocation),
+        raw_transcript: transcript,
+      });
     }
-
-    let location: string | null = null;
-    if (pickedIdx !== -1) {
-      claimedLocs.add(pickedIdx);
-      location = locationMatches[pickedIdx].value;
-    }
-
-    if (
-      location === null &&
-      (issue.keyword.length <= SHORT_KEYWORD_MAX_LEN ||
-        LOCATION_REQUIRED_KEYWORDS.has(issue.keyword))
-    ) {
-      continue;
-    }
-
-    const dedupeKey = `${issue.value}|${location ?? ""}`;
-    if (seen.has(dedupeKey)) continue;
-    seen.add(dedupeKey);
-
-    out.push({
-      type_slug: issue.value,
-      location,
-      summary: buildSummary(issue.value, location),
-      raw_transcript: transcript,
-    });
   }
 
   return out;
@@ -533,4 +580,5 @@ export const __testing__ = {
   ISSUE_NAME_BY_SLUG,
   PAIR_WINDOW_CHARS,
   SHORT_KEYWORD_MAX_LEN,
+  LOCATION_UNKNOWN,
 };

@@ -39,14 +39,15 @@ describe("extractIssues — happy path: two issues at two locations", () => {
 });
 
 describe("extractIssues — issue without location (fallback path)", () => {
-  it("returns the issue with location null and the (location not specified) summary", () => {
+  it("returns the issue with 'Location Unknown' and the (location unknown) summary", () => {
     const transcript = "something feels off";
     const result = extractIssues(transcript);
     expect(result).toEqual([
       {
         type_slug: "something_off",
-        location: null,
-        summary: "Something Feels Off observed (location not specified)",
+        // item B: emitted issues never carry null location anymore.
+        location: "Location Unknown",
+        summary: "Something Feels Off observed (location unknown)",
         raw_transcript: transcript,
       },
     ]);
@@ -113,7 +114,10 @@ describe("extractIssues — pairing window (50 chars)", () => {
     const result = extractIssues(transcript);
     expect(result).toHaveLength(1);
     expect(result[0].type_slug).toBe("oil_leak");
-    expect(result[0].location).toBeNull();
+    // item B: the filler's commas/"and" split this into clauses, so "oil
+    // leak" never reaches "belly" → Location Unknown (was null via the
+    // 50-char window). Either way: no wrong location is borrowed.
+    expect(result[0].location).toBe("Location Unknown");
   });
 });
 
@@ -345,12 +349,13 @@ describe("extractIssues — drop unpaired short-keyword issues", () => {
     expect(extractIssues("Oil temp is fine.")).toEqual([]);
   });
 
-  it("'There's an oil leak.' → 1 issue oil_leak/null (phrase still emits unpaired)", () => {
+  it("'There's an oil leak.' → 1 issue oil_leak / Location Unknown (phrase still emits unpaired)", () => {
     const result = extractIssues("There's an oil leak.");
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({
       type_slug: "oil_leak",
-      location: null,
+      // item B: emitted unpaired issues read "Location Unknown" (was null).
+      location: "Location Unknown",
     });
   });
 });

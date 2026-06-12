@@ -112,6 +112,10 @@ export const LOCATION_LABELS = [
   "Master Switch",
   "Avionics Circuit Breakers",
   "Ignition Switch",
+  // Item B — low-confidence fallback. Listed so the per-issue edit dropdown
+  // offers it as a correctable value when extraction couldn't confidently
+  // place an observation (issues.location is free text).
+  "Location Unknown",
 ] as const;
 
 export type LocationLabel = (typeof LOCATION_LABELS)[number];
