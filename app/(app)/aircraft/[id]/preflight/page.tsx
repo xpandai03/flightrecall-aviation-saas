@@ -515,6 +515,26 @@ export default function PreflightPage() {
     }
   };
 
+  // Item E flow fix: complete a "No Issues" preflight WITHOUT attaching a
+  // checklist photo. The checklist photo is optional — this is the obvious
+  // finish path so the user is never trapped on the checklist screen. Mirrors
+  // handleEndPreflight (finalize → dashboard); just creates the no_issues
+  // session first (green) instead of requiring a saved photo.
+  const handleNoIssuesFinishNoPhoto = React.useCallback(async () => {
+    if (!defaultAircraft) return;
+    setStep({ kind: "finalizing" });
+    try {
+      const session = await ensureSession("no_issues");
+      await finalizeSession(session.id);
+      router.push(`/aircraft/${aircraftId}/dashboard`);
+    } catch (err) {
+      toast.error("Couldn't finalize preflight", {
+        description: err instanceof Error ? err.message : String(err),
+      });
+      setStep({ kind: "idle" });
+    }
+  }, [aircraftId, defaultAircraft, ensureSession, router]);
+
   const pollSessionId =
     step.kind === "confirming" ? step.session.id : null;
   const pollTranscriptionId =
@@ -674,14 +694,25 @@ export default function PreflightPage() {
       )}
 
       {step.kind === "no_issues_capturing" && (
-        <div className="flex flex-col items-center gap-4 w-full">
-          <div className="text-center max-w-sm">
+        <div className="flex flex-col items-center gap-5 w-full max-w-sm">
+          <div className="text-center">
             <h2 className="text-base font-semibold tracking-tight">
-              Snap your checklist
+              No issues logged
             </h2>
             <p className="text-sm text-muted-foreground mt-1">
-              A photo of your completed preflight checklist confirms this clean log.
+              You can end the preflight now. Adding a photo of your completed
+              checklist is optional.
             </p>
+          </div>
+          <Button
+            size="lg"
+            onClick={handleNoIssuesFinishNoPhoto}
+            className="h-12 w-full rounded-full"
+          >
+            End Preflight
+          </Button>
+          <div className="text-[11px] font-medium uppercase tracking-wide text-text-muted">
+            Optional checklist photo
           </div>
           <PhotoCapture
             onCaptured={handleNoIssuesPhotoCaptured}
