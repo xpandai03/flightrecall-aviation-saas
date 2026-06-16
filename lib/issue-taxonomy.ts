@@ -112,6 +112,14 @@ export const LOCATION_LABELS = [
   "Master Switch",
   "Avionics Circuit Breakers",
   "Ignition Switch",
+  // Item D — exterior lights (handed nav + landing), precise engine bay, GPS.
+  "Landing Light",
+  "Navigation Light",
+  "Front Navigation Light",
+  "Left Navigation Light",
+  "Right Navigation Light",
+  "Engine Bay",
+  "GPS",
   // Item B — low-confidence fallback. Listed so the per-issue edit dropdown
   // offers it as a correctable value when extraction couldn't confidently
   // place an observation (issues.location is free text).
@@ -134,8 +142,16 @@ export const SEVERITY_MAP: Record<string, IssueSeverityClass> = {
   brake_wear: "critical",
   cable_issue: "critical",
   cap_loose: "critical",
+  // Item D — aviation vocabulary new types (see migration
+  // 20260611140000_item_d_aviation_vocabulary.sql). All critical
+  // (safest-when-ambiguous): blocked instrument / unreliable instrument /
+  // comm loss / equipment out are all safety-relevant.
+  comm_fault: "critical",
   corrosion: "critical",
   crack: "critical",
+  equipment_out: "critical",
+  instrument_fault: "critical",
+  obstruction: "critical",
   // M4 Item 2 — new generic-critical types (see migration
   // 20260602120000_m4_keyword_expansion_severities.sql).
   damage: "critical",

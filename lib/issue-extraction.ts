@@ -180,6 +180,41 @@ const ISSUE_KEYWORDS: Record<string, string> = {
   damage: "damage",
   hole: "hole",
   holes: "hole",
+  // --- Item D — aviation vocabulary pass (Raunek/Zach signed-off) -----
+  // Client-enumerated terms that produced NOTHING (audit GROUP B2/D): the
+  // issue VERB was missing, so location-only phrases were dropped. Four NEW
+  // critical issue types (obstruction, instrument_fault, comm_fault,
+  // equipment_out); severities in BOTH SEVERITY_MAP and migration
+  // 20260611140000_item_d_aviation_vocabulary.sql (sync rule). Bias =
+  // critical when ambiguous.
+  //
+  // BLOCKAGE — a blocked pitot/static is a serious airspeed hazard.
+  blocked: "obstruction",
+  obstructed: "obstruction",
+  // INSTRUMENT MALFUNCTION — an unreliable instrument is safety-critical.
+  // "glitch" covers glitching/glitches via substring.
+  glitch: "instrument_fault",
+  frozen: "instrument_fault",
+  inaccurate: "instrument_fault",
+  intermittent: "instrument_fault",
+  // Distinct from "not working" (→ not_working) per the audit caveat.
+  "not responding": "instrument_fault",
+  // RADIO / COMM FAILURE.
+  "no transmit": "comm_fault",
+  "no receive": "comm_fault",
+  // Bare "static" is intentionally NOT a key: it collides with the
+  // "static port" LOCATION (the issue pass would consume "static" and
+  // break that location) and FPs on benign speech ("stood static"). The
+  // "radio static" phrase captures the comm case safely. (Flagged: broader
+  // static phrasings — "GPS static", bare "static" — remain a follow-up.)
+  "radio static": "comm_fault",
+  // EQUIPMENT / LIGHT OUT. Bare "out" is safe via the EXISTING short-keyword
+  // guards: ≤ SHORT_KEYWORD_MAX_LEN(3) → word-bounded on scan ("without",
+  // "throughout", "outside" never match) AND dropped when it fails to pair
+  // with a nearby location ("checked it out", "out of the hangar" → no
+  // location in clause → dropped). It only emits when paired with a
+  // light/equipment location in its own clause ("navigation light is out").
+  out: "equipment_out",
 };
 
 /** Location keyword → canonical location label (M4 Item 1, Raunek/Zach
@@ -245,6 +280,9 @@ const LOCATION_KEYWORDS: Record<string, string> = {
   cowling: "Engine Cowl",
   cowl: "Engine Cowl",
   propeller: "Propeller",
+  // "engine bay" is a precise label distinct from the coarse Engine Area;
+  // longest-match-first lets it win over bare "engine".
+  "engine bay": "Engine Bay",
   engine: "Engine Area",
   front: "Engine Area",
   // --- Tail / empennage ----------------------------------------------
@@ -295,6 +333,24 @@ const LOCATION_KEYWORDS: Record<string, string> = {
   panel: "Cockpit",
   avionics: "Cockpit",
   inside: "Cockpit",
+  // --- Item D — lights + GPS (client-enumerated) ---------------------
+  // Exterior lights. Navigation lights are handed; bare "navigation
+  // light"/"nav light" → coarse Navigation Light (the client's example
+  // "navigation light is out" gives no side). Longest-match-first lets the
+  // handed/side keys win over the coarse one.
+  "front navigation light": "Front Navigation Light",
+  "left navigation light": "Left Navigation Light",
+  "right navigation light": "Right Navigation Light",
+  "front nav light": "Front Navigation Light",
+  "left nav light": "Left Navigation Light",
+  "right nav light": "Right Navigation Light",
+  "navigation light": "Navigation Light",
+  "nav light": "Navigation Light",
+  "landing lights": "Landing Light",
+  "landing light": "Landing Light",
+  // GPS as a voice location so "GPS no transmit" pairs to GPS (the long
+  // "GPS and Nav/Com Radio 1" picker label stays separate).
+  gps: "GPS",
 };
 
 /** Slug → human-readable issue name. Used to build summary strings
@@ -334,6 +390,11 @@ const ISSUE_NAME_BY_SLUG: Record<string, string> = {
   not_working: "Not Working",
   damage: "Damage",
   hole: "Hole",
+  // Item D — aviation vocabulary new types.
+  obstruction: "Obstruction",
+  instrument_fault: "Instrument Fault",
+  comm_fault: "Comm Fault",
+  equipment_out: "Equipment Out",
   // Legacy quick-tag slugs reachable via the M4 wish-list aliases above.
   scratch: "Scratch",
   other: "Other",

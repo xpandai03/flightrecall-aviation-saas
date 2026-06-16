@@ -299,8 +299,8 @@ const FIXTURES: Fixture[] = [
   },
   {
     input: "landing light flickered during startup",
-    expected: { type: "flicker", location: "Location Unknown" },
-    note: "'flickered' → flicker; 'landing light' is NOT a location keyword (item D) → Location Unknown, NOT a wrong far 'Pitot Tube' from another clause",
+    expected: { type: "flicker", location: "Landing Light" },
+    note: "item D added 'landing light' as a location → flicker/Landing Light (was Location Unknown pre-item-D)",
   },
   {
     input: "crack on the left wing or the right aileron",
@@ -328,6 +328,97 @@ const FIXTURES: Fixture[] = [
       { type: "dent", location: "Right Tire" },
     ],
     note: "⚠️ OD2 RESIDUAL: no delimiters → single clause → may mis-pair. Punctuated input pairs correctly. Issue-boundary sub-splitting deferred.",
+  },
+
+  // --- Item D — aviation vocabulary (the 4 client failing examples) ---
+  {
+    input: "pitot tube looks blocked",
+    expected: { type: "obstruction", location: "Pitot Tube" },
+    note: "Item D — 'blocked' → obstruction (critical); was [] (no verb keyword)",
+  },
+  {
+    input: "altimeter is glitching",
+    expected: { type: "instrument_fault", location: "Altimeter" },
+    note: "Item D — 'glitch' (substring of glitching) → instrument_fault (critical); was []",
+  },
+  {
+    input: "navigation light is out",
+    expected: { type: "equipment_out", location: "Navigation Light" },
+    note: "Item D — bare 'out' (short-keyword guarded: word-bounded + drop-if-unpaired) pairs with the new 'navigation light' location; was []",
+  },
+  {
+    input: "GPS no transmit",
+    expected: { type: "comm_fault", location: "GPS" },
+    note: "Item D — 'no transmit' → comm_fault (critical); 'gps' added as a voice location; was []",
+  },
+
+  // --- Item D — more new verbs + locations ---------------------------
+  {
+    input: "transponder is frozen",
+    expected: { type: "instrument_fault", location: "Transponder" },
+    note: "'frozen' → instrument_fault",
+  },
+  {
+    input: "airspeed indicator is inaccurate",
+    expected: { type: "instrument_fault", location: "Airspeed Indicator" },
+    note: "'inaccurate' → instrument_fault",
+  },
+  {
+    input: "attitude indicator not responding",
+    expected: { type: "instrument_fault", location: "Attitude Indicator" },
+    note: "'not responding' → instrument_fault (distinct from 'not working' → not_working)",
+  },
+  {
+    input: "obstructed static port",
+    expected: { type: "obstruction", location: "Static Port" },
+    note: "'obstructed' → obstruction; confirms the 'static port' LOCATION still forms (bare 'static' was deliberately NOT added)",
+  },
+  {
+    input: "no receive on the radio",
+    expected: { type: "comm_fault", location: "Location Unknown" },
+    note: "'no receive' → comm_fault; no in-clause location keyword → Location Unknown",
+  },
+  {
+    input: "getting radio static",
+    expected: { type: "comm_fault", location: "Location Unknown" },
+    note: "'radio static' phrase → comm_fault (bare 'static' omitted — collides with 'static port' + FP)",
+  },
+  {
+    input: "landing light is out",
+    expected: { type: "equipment_out", location: "Landing Light" },
+    note: "Item D location 'landing light' + 'out' → equipment_out / Landing Light",
+  },
+  {
+    input: "left navigation light is out",
+    expected: { type: "equipment_out", location: "Left Navigation Light" },
+    note: "handed nav light — 'left navigation light' wins over coarse 'navigation light' (longest-match-first)",
+  },
+  {
+    input: "crack in the engine bay",
+    expected: { type: "crack", location: "Engine Bay" },
+    note: "Item D 'engine bay' precise label (longest-match-first beats coarse 'engine' → Engine Area)",
+  },
+
+  // --- Item D — false-positive guards (must NOT extract) -------------
+  {
+    input: "checked it out",
+    expected: null,
+    note: "'out' is a short keyword (≤3): word-bounded + dropped when unpaired (no location) → no equipment_out",
+  },
+  {
+    input: "out of the hangar",
+    expected: null,
+    note: "'out' unpaired (no location keyword in clause) → dropped",
+  },
+  {
+    input: "taxied out to the runway",
+    expected: null,
+    note: "'out' unpaired → dropped; 'runway' is not a location keyword",
+  },
+  {
+    input: "static port looks fine",
+    expected: null,
+    note: "bare 'static' is NOT an issue keyword → no false comm_fault; 'static port' is location-only → dropped (no issue)",
   },
 ];
 

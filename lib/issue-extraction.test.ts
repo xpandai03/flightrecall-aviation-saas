@@ -172,15 +172,13 @@ describe("internal vocabulary tables", () => {
     }
   });
 
-  it("ISSUE_KEYWORDS values match the V1 spec slug set (35 entries)", () => {
+  it("ISSUE_KEYWORDS values match the spec slug set (39 entries)", () => {
     const slugs = new Set(Object.values(__testing__.ISSUE_KEYWORDS));
-    // 31 after the M3 goodwill round (see git history). M4 Item 2 adds
-    // four NEW generic-critical issue types reachable from new keywords:
-    // leak_general (leaking), not_working (not working), damage (damage),
-    // hole (hole / holes) → 31 + 4 = 35. (vibrating→vibration,
-    // soft brakes→brake_soft and bare scratch→scratch reuse existing
-    // slugs, so they don't change the count.)
-    expect(slugs.size).toBe(35);
+    // 35 after M4 Item 2. Item D adds four NEW critical types:
+    // obstruction (blocked/obstructed), instrument_fault (glitch/frozen/
+    // inaccurate/intermittent/not responding), comm_fault (no transmit/
+    // no receive/radio static), equipment_out (out) → 35 + 4 = 39.
+    expect(slugs.size).toBe(39);
   });
 
   it("every LOCATION_KEYWORDS value is a registered LOCATION_LABEL (sync invariant)", () => {
@@ -361,9 +359,10 @@ describe("extractIssues — drop unpaired short-keyword issues", () => {
 });
 
 describe("issue taxonomy — severity_class (M3)", () => {
-  it("SEVERITY_MAP covers every slug the API can return (37 issue_types rows)", () => {
-    // 33 → 37: M4 Item 2 adds leak_general, not_working, damage, hole.
-    expect(Object.keys(SEVERITY_MAP)).toHaveLength(37);
+  it("SEVERITY_MAP covers every slug the API can return (41 issue_types rows)", () => {
+    // 37 after Item 2; Item D adds obstruction, instrument_fault,
+    // comm_fault, equipment_out → 41.
+    expect(Object.keys(SEVERITY_MAP)).toHaveLength(41);
   });
 
   it("every map entry is critical or cosmetic", () => {
