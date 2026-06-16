@@ -11,6 +11,11 @@ import {
 import { ShareAircraftButton } from "@/components/aircraft/share-aircraft-button";
 import { summarizeSession } from "@/lib/api/adapter";
 import { loadActiveIssuesBySeverity } from "@/lib/active-issues-load";
+import {
+  formatObservationLine,
+  loadPreviousSessionObservations,
+} from "@/lib/previous-session";
+import { formatFirstReported } from "@/lib/issue-derivation";
 import { createClient } from "@/utils/supabase/server";
 import type {
   IssueObservationDetail,
@@ -49,8 +54,14 @@ export default async function DashboardPage({
   const cookieStore = await cookies();
   const supabase = createClient(cookieStore);
 
-  const [userRes, aircraftRes, buckets, sessionTimesRes, recentSessionsRes] =
-    await Promise.all([
+  const [
+    userRes,
+    aircraftRes,
+    buckets,
+    sessionTimesRes,
+    recentSessionsRes,
+    previousRecall,
+  ] = await Promise.all([
       supabase.auth.getUser(),
       supabase
         .from("aircraft")
@@ -74,6 +85,7 @@ export default async function DashboardPage({
         .eq("aircraft_id", aircraftId)
         .order("created_at", { ascending: false })
         .limit(RECENT_LIMIT),
+      loadPreviousSessionObservations(supabase, aircraftId),
     ]);
 
   const firstName = resolveFirstName(userRes.data.user);
@@ -164,6 +176,36 @@ export default async function DashboardPage({
             aircraftId={aircraftId}
             issues={dashboardTopCritical}
           />
+        )}
+      </section>
+
+      <section aria-labelledby="last-flight-heading">
+        <h2
+          id="last-flight-heading"
+          className="text-text-secondary text-xs font-semibold uppercase tracking-wider mb-3"
+        >
+          From Your Last Flight
+        </h2>
+        {previousRecall === null ? (
+          <p className="text-sm text-text-muted">No previous session yet.</p>
+        ) : previousRecall.observations.length === 0 ? (
+          <p className="text-sm text-text-muted">
+            No issues logged on{" "}
+            {formatFirstReported(previousRecall.sessionDateIso)}.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            <p className="text-xs text-text-muted">
+              {formatFirstReported(previousRecall.sessionDateIso)}
+            </p>
+            <ul className="space-y-1.5">
+              {previousRecall.observations.map((o) => (
+                <li key={o.id} className="text-sm text-text-secondary">
+                  {formatObservationLine(o)}
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
       </section>
 
