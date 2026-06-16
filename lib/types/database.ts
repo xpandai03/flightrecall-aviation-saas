@@ -131,6 +131,10 @@ export type ActiveIssue = IssueWithType & {
 export type ActiveIssueEnriched = ActiveIssue & {
   originating_session_id: string | null;
   recurrence_count: number;
+  // A4 — linked-media counts for the quick-view card. photos = directly
+  // linked media_assets; voice = observations carrying a transcript.
+  linked_photo_count: number;
+  linked_voice_count: number;
 };
 
 export type ActiveIssuesBySeverity = {

@@ -4,6 +4,7 @@ import {
   compareCriticalIssuesEnriched,
   isRecurrenceAction,
 } from "@/lib/dashboard-issue-ranking";
+import { countPhotosByIssue, countVoiceObservations } from "@/lib/issue-media";
 import type {
   ActiveIssueEnriched,
   ActiveIssuesBySeverity,
@@ -56,23 +57,41 @@ export async function loadActiveIssuesBySeverity(
 
   const obsByIssue = new Map<
     string,
-    { action: string; preflight_session_id: string; created_at: string }[]
+    {
+      action: string;
+      preflight_session_id: string;
+      created_at: string;
+      raw_transcript: string | null;
+    }[]
   >();
+  // A4 — directly-linked photo counts per issue (RLS-scoped via the user
+  // client's media_assets policy — no Phase-4 bytes fetched here, just counts).
+  let photoCountByIssue = new Map<string, number>();
 
   if (issueIds.length > 0) {
-    const obsRes = await supabase
-      .from("issue_observations")
-      .select("issue_id, action, preflight_session_id, created_at")
-      .in("issue_id", issueIds)
-      .order("created_at", { ascending: true });
+    const [obsRes, mediaRes] = await Promise.all([
+      supabase
+        .from("issue_observations")
+        .select("issue_id, action, preflight_session_id, created_at, raw_transcript")
+        .in("issue_id", issueIds)
+        .order("created_at", { ascending: true }),
+      supabase
+        .from("media_assets")
+        .select("issue_id, media_type")
+        .in("issue_id", issueIds),
+    ]);
     if (obsRes.error) {
       throw new Error(obsRes.error.message);
+    }
+    if (mediaRes.error) {
+      throw new Error(mediaRes.error.message);
     }
     for (const row of obsRes.data ?? []) {
       const list = obsByIssue.get(row.issue_id) ?? [];
       list.push(row);
       obsByIssue.set(row.issue_id, list);
     }
+    photoCountByIssue = countPhotosByIssue(mediaRes.data ?? []);
   }
 
   const nowMs = Date.now();
@@ -98,6 +117,8 @@ export async function loadActiveIssuesBySeverity(
       flights_since,
       originating_session_id,
       recurrence_count,
+      linked_photo_count: photoCountByIssue.get(issue.id) ?? 0,
+      linked_voice_count: countVoiceObservations(sortedObs),
     };
   });
 

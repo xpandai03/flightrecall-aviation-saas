@@ -30,6 +30,17 @@ export function formatIssueLastSeenLine(flightsSince: number): string {
   return `Last seen ${flightsSince} flights ago`;
 }
 
+/** A4 — first-reported as a readable date (e.g. "Jun 3, 2026"). */
+export function formatFirstReported(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
 /**
  * Per-issue severity. Locked rule:
  *   resolved          → 'resolved'

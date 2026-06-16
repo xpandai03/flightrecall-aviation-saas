@@ -9,7 +9,8 @@ import {
   daysSince,
   deriveDashboardUrgencyAccent,
 } from "@/lib/dashboard-issue-ranking";
-import { formatIssueLastSeenLine } from "@/lib/issue-derivation";
+import { formatFirstReported, formatIssueLastSeenLine } from "@/lib/issue-derivation";
+import { linkedMediaLabel } from "@/lib/issue-media";
 import type { ActiveIssueEnriched, IssueAction } from "@/lib/types/database";
 import { cn } from "@/lib/utils";
 
@@ -83,6 +84,12 @@ export function ActiveIssueRow({
       : "Not specified";
   const n = issue.recurrence_count;
   const recurrenceLabel = `Logged ${n} ${n === 1 ? "time" : "times"}`;
+  // A4 — linked-media indicator (null when none). Bytes are viewed elsewhere
+  // (session detail, Phase-4 gated); this is a DB-derived count only.
+  const mediaLabel = linkedMediaLabel(
+    issue.linked_photo_count,
+    issue.linked_voice_count,
+  );
 
   const runFixed = React.useCallback(async () => {
     if (inFlight.current) return;
@@ -169,6 +176,15 @@ export function ActiveIssueRow({
                 {recurrenceLabel}
                 <span className="text-text-muted"> · </span>
                 {formatIssueLastSeenLine(issue.flights_since)}
+              </p>
+              <p className="text-[11px] text-text-muted">
+                First reported {formatFirstReported(issue.first_seen_at)}
+                {mediaLabel ? (
+                  <>
+                    <span> · </span>
+                    {mediaLabel}
+                  </>
+                ) : null}
               </p>
             </div>
           </div>

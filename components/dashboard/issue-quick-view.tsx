@@ -7,7 +7,8 @@ import { AlertTriangle, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ActiveIssueEnriched } from "@/lib/types/database";
 import type { DashboardUrgencyAccent } from "@/lib/dashboard-issue-ranking";
-import { formatIssueLastSeenLine } from "@/lib/issue-derivation";
+import { formatFirstReported, formatIssueLastSeenLine } from "@/lib/issue-derivation";
+import { linkedMediaLabel } from "@/lib/issue-media";
 import { cn } from "@/lib/utils";
 
 function UrgencyBadge({ accent }: { accent: DashboardUrgencyAccent }) {
@@ -117,6 +118,13 @@ export function IssueQuickView({
   const typeName = issue.issue_type?.name ?? "Unknown issue";
   const locationLabel = issue.location?.trim() || "Location not specified";
   const n = issue.recurrence_count;
+  // A4 — linked-media indicator (null when none → no clutter). Viewing the
+  // actual bytes happens via "View in detail" → session (Phase-4 gated); the
+  // card only shows DB-derived counts.
+  const mediaLabel = linkedMediaLabel(
+    issue.linked_photo_count,
+    issue.linked_voice_count,
+  );
   const detailHref = issue.originating_session_id
     ? `/aircraft/${aircraftId}/sessions?session=${issue.originating_session_id}`
     : null;
@@ -151,11 +159,23 @@ export function IssueQuickView({
           </dd>
         </div>
         <div>
+          <dt className="inline text-text-muted">First reported: </dt>
+          <dd className="inline text-text-primary">
+            {formatFirstReported(issue.first_seen_at)}
+          </dd>
+        </div>
+        <div>
           <dt className="inline text-text-muted">Recency: </dt>
           <dd className="inline text-text-primary">
             {formatIssueLastSeenLine(issue.flights_since)}
           </dd>
         </div>
+        {mediaLabel && (
+          <div>
+            <dt className="inline text-text-muted">Linked media: </dt>
+            <dd className="inline text-text-primary">{mediaLabel}</dd>
+          </div>
+        )}
       </dl>
       {detailHref ? (
         <Button
