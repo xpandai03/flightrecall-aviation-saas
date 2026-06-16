@@ -34,7 +34,8 @@ export function AddAircraftDialog({
         <DialogHeader>
           <DialogTitle>Add aircraft</DialogTitle>
           <DialogDescription>
-            Create a new aircraft, or join a shared one with an invite code.
+            Create a new aircraft, or join a shared one by tail number or with
+            an invite code.
           </DialogDescription>
         </DialogHeader>
         <AddOrJoinAircraft

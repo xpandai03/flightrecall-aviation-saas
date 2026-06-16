@@ -38,6 +38,20 @@ export function joinAircraftByCode(code: string): Promise<Aircraft> {
   });
 }
 
+/** Open join (no code): join an existing aircraft by tail + aircraft type.
+ *  Returns the joined aircraft. Throws when nothing matches. Lives alongside
+ *  joinAircraftByCode — neither replaces the other. */
+export function joinAircraftByTail(
+  tail: string,
+  aircraftType: string,
+): Promise<Aircraft> {
+  return jsonFetch<Aircraft>("/api/v1/aircraft/join-by-tail", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tail, aircraft_type: aircraftType }),
+  });
+}
+
 /** Owner-only: read the aircraft's current active invite code (or null). */
 export function getAircraftInvite(
   aircraftId: string,
