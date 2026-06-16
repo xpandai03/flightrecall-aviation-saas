@@ -8,6 +8,7 @@ import {
   Camera,
   CheckCircle2,
   ChevronRight,
+  Download,
   FileText,
   ImageOff,
   Mic,
@@ -21,6 +22,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet"
+import { Button } from "@/components/ui/button"
 import { EditableTranscript } from "@/components/editable-transcript"
 import { PhotoLightbox } from "@/components/photo-lightbox"
 import { StatusChip } from "@/components/status-chip"
@@ -292,6 +294,26 @@ function SessionDetail({ session }: { session: Session }) {
             {loggedByLabel(pilotNames[detail.created_by])}
           </div>
         )}
+        <div className="pt-1">
+          <Button
+            variant="outline"
+            size="sm"
+            className="rounded-full gap-1.5"
+            onClick={() =>
+              // A1: open the PDF inline in a new tab — iOS Safari shows it in
+              // its PDF viewer (Share / Save to Files); desktop previews +
+              // downloads. The route is membership-gated server-side.
+              window.open(
+                `/api/v1/preflight-sessions/${session.id}/export`,
+                "_blank",
+                "noopener",
+              )
+            }
+          >
+            <Download className="size-3.5" />
+            Export PDF
+          </Button>
+        </div>
       </SheetHeader>
 
       <div className="px-4 pb-4 space-y-5">
