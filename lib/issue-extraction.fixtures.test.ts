@@ -420,6 +420,43 @@ const FIXTURES: Fixture[] = [
     expected: null,
     note: "bare 'static' is NOT an issue keyword → no false comm_fault; 'static port' is location-only → dropped (no issue)",
   },
+
+  // --- Phonetic correction (Whisper aviation mis-hearings) ------------
+  // applyTranscriptionCorrections runs INSIDE extractIssues before the scan,
+  // so a mis-heard term binds the right location. The original transcript is
+  // preserved in raw_transcript (covered in transcription-corrections.test.ts).
+  {
+    input: "pilot tube looks blocked",
+    expected: { type: "obstruction", location: "Pitot Tube" },
+    note: "Whisper mishear 'pilot tube' → 'pitot tube' → Obstruction / Pitot Tube",
+  },
+  {
+    input: "pedo tube looks blocked",
+    expected: { type: "obstruction", location: "Pitot Tube" },
+    note: "Whisper mishear 'pedo tube' → 'pitot tube' → Obstruction / Pitot Tube",
+  },
+  {
+    input: "pitot tube looks blocked",
+    expected: { type: "obstruction", location: "Pitot Tube" },
+    note: "already-correct input unchanged → same result (no double-correction)",
+  },
+  // Adversarial: benign 'pilot'/'autopilot' speech must NOT be rewritten and
+  // must NOT yield a spurious Pitot/Obstruction issue.
+  {
+    input: "the pilot taxied to the runway",
+    expected: null,
+    note: "adversarial: standalone 'pilot' never rewritten → no Pitot issue",
+  },
+  {
+    input: "autopilot disengaged on downwind",
+    expected: null,
+    note: "adversarial: 'autopilot' never rewritten → no Pitot issue",
+  },
+  {
+    input: "pilot error caused the go-around",
+    expected: null,
+    note: "adversarial: 'pilot error' untouched → no Pitot issue",
+  },
 ];
 
 describe("extractIssues — fixture regression cases", () => {

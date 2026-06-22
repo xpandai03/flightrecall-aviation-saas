@@ -16,6 +16,8 @@
  *  - No re-extraction on transcript edit (Phase 3 may revisit).
  */
 
+import { applyTranscriptionCorrections } from "@/lib/transcription-corrections";
+
 export type ExtractedIssue = {
   /** Slug from issue_types.slug — canonical taxonomy ID. */
   type_slug: string;
@@ -533,7 +535,13 @@ export function splitIntoClauses(text: string): string[] {
  */
 export function extractIssues(transcript: string): ExtractedIssue[] {
   if (!transcript) return [];
-  const text = transcript.toLowerCase().replace(/\s+/g, " ").trim();
+  // Phonetic-correction layer: fix KNOWN Whisper mis-hearings of aviation
+  // jargon (e.g. "pilot tube" → "pitot tube") so the location binds. This
+  // feeds the scanner ONLY — `transcript` (the original Whisper output) is
+  // still what we store in raw_transcript below, so the user-visible
+  // transcript is never silently rewritten. See lib/transcription-corrections.ts.
+  const corrected = applyTranscriptionCorrections(transcript);
+  const text = corrected.toLowerCase().replace(/\s+/g, " ").trim();
   if (!text) return [];
 
   const seen = new Set<string>();
